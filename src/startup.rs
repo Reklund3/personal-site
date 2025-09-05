@@ -117,7 +117,7 @@ async fn run(
                     .session_lifecycle(
                         PersistentSession::default().session_ttl(Duration::seconds(3600)),
                     )
-                    .cookie_name("zero2prod".to_string())
+                    .cookie_name("roberteklund".to_string())
                     .cookie_secure(
                         std::env::var("COOKIE_SECURE").unwrap_or("false".to_owned()) == "true",
                     )

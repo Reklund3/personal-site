@@ -18,7 +18,7 @@ export default function Projects() {
                         </CardContent>
                         <Box sx={{ flexGrow: 1 }}/>
                         <CardActions>
-                            <IconButton sx={{ display: { xs: 'flex', md: 'flex' } }} href={"https://github.com/Reklund3/zero2prod"}>
+                            <IconButton sx={{ display: { xs: 'flex', md: 'flex' } }} href={"https://github.com/Reklund3/personal-site"}>
                                 <GitHubIcon sx={{ display: { xs: 'flex', md: 'flex' } }} />
                             </IconButton>
                         </CardActions>
