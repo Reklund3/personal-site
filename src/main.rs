@@ -1,9 +1,9 @@
-use std::fmt::{Debug, Display};
-use tokio::task::JoinError;
 use site::configuration::get_configuration;
 use site::issue_delivery_worker::run_worker_until_stopped;
 use site::startup::Application;
 use site::telemetry::{get_subscriber, init_subscriber};
+use std::fmt::{Debug, Display};
+use tokio::task::JoinError;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

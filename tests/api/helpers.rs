@@ -1,16 +1,16 @@
 use argon2::password_hash::SaltString;
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version};
 use secrecy::Secret;
+use site::configuration::{get_configuration, DatabaseSettings};
+use site::email_client::{ApplicationBaseUrl, EmailClient};
+use site::issue_delivery_worker::{try_execute_task, ExecutionOutcome};
+use site::startup::{get_pg_pool, Application};
+use site::telemetry::{get_subscriber, init_subscriber};
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::sync::LazyLock;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 use wiremock::MockServer;
-use zero2prod::configuration::{get_configuration, DatabaseSettings};
-use zero2prod::email_client::{ApplicationBaseUrl, EmailClient};
-use zero2prod::issue_delivery_worker::{try_execute_task, ExecutionOutcome};
-use zero2prod::startup::{get_pg_pool, Application};
-use zero2prod::telemetry::{get_subscriber, init_subscriber};
 
 static TRACING: LazyLock<()> = LazyLock::new(|| {
     let default_filter_level = "info".to_string();
