@@ -23,6 +23,8 @@ pub struct ApplicationSettings {
     pub hmac_secret: Secret<String>,
     pub cert_file_path: String,
     pub key_file_path: String,
+    pub resume_file_path: String,
+    pub headshot_file_path: String,
 }
 
 #[derive(Clone, Deserialize)]

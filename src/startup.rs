@@ -69,6 +69,8 @@ impl Application {
             configuration.application.base_url,
             configuration.application.hmac_secret,
             configuration.redis_uri,
+            configuration.application.resume_file_path,
+            configuration.application.headshot_file_path,
             tls_config,
         )
         .await?;
@@ -92,6 +94,40 @@ pub fn get_pg_pool(database_configuration: &DatabaseSettings) -> PgPool {
         .connect_lazy_with(database_configuration.connect_options())
 }
 
+fn create_security_headers(tls_enabled: bool) -> middleware::DefaultHeaders {
+    let mut headers = middleware::DefaultHeaders::new()
+        .add(("X-Frame-Options", "DENY"))
+        .add(("X-Content-Type-Options", "nosniff"))
+        .add(("Referrer-Policy", "strict-origin-when-cross-origin"))
+        .add(("X-XSS-Protection", "1; mode=block"))
+        .add((
+            "Content-Security-Policy",
+            "default-src 'self'; \
+             script-src 'self' 'unsafe-inline'; \
+             style-src 'self' 'unsafe-inline'; \
+             img-src 'self' data:; \
+             font-src 'self'; \
+             connect-src 'self'; \
+             frame-ancestors 'none'; \
+             base-uri 'self'; \
+             form-action 'self'",
+        ))
+        .add((
+            "Permissions-Policy",
+            "geolocation=(), microphone=(), camera=()",
+        ));
+
+    // Add HSTS header when TLS is enabled
+    if tls_enabled {
+        headers = headers.add((
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains; preload",
+        ));
+    }
+
+    headers
+}
+
 async fn run(
     listener: TcpListener,
     pg_pool: PgPool,
@@ -99,19 +135,27 @@ async fn run(
     base_url: ApplicationBaseUrl,
     hmac_secret: Secret<String>,
     redis_uri: Secret<String>,
+    resume_file_path: String,
+    headshot_file_path: String,
     tls_config: Option<rustls::ServerConfig>,
 ) -> Result<Server, anyhow::Error> {
     let db_pool = Data::new(pg_pool);
     let email_client = Data::new(email_client);
     let base_url = Data::new(base_url.clone());
+    let resume_config = Data::new(ResumeConfig { file_path: resume_file_path });
+    let headshot_config = Data::new(HeadshotConfig {
+        file_path: headshot_file_path,
+    });
     let secret_key = Key::from(hmac_secret.expose_secret().as_bytes());
     let message_store = CookieMessageStore::builder(secret_key.clone()).build();
     let message_framework = FlashMessagesFramework::builder(message_store).build();
     let redis_store = RedisSessionStore::new(redis_uri.expose_secret()).await?;
+    let tls_enabled = tls_config.is_some();
+
     let server_builder = HttpServer::new(move || {
         App::new()
             .wrap(message_framework.clone())
-            .wrap(middleware::DefaultHeaders::new())
+            .wrap(create_security_headers(tls_enabled))
             .wrap(
                 SessionMiddleware::builder(redis_store.clone(), secret_key.clone())
                     .session_lifecycle(
@@ -143,10 +187,22 @@ async fn run(
             .route("/health_check", web::get().to(health_check))
             .route("/subscriptions", web::post().to(subscribe))
             .route("/subscriptions/confirm", web::get().to(confirm))
-            .service(Files::new("/", "./ui/dist/"))
+            .route("/resume", web::get().to(serve_resume))
+            .route("/headshot", web::get().to(serve_headshot))
+            .route("/robots.txt", web::get().to(serve_robots_txt))
+            .route("/sitemap.xml", web::get().to(serve_sitemap_xml))
+            .route("/ai.txt", web::get().to(serve_ai_txt))
+            .service(
+                Files::new("/", "./ui/dist/")
+                    .index_file("index.html")
+                    .use_etag(true)
+                    .use_last_modified(true),
+            )
             .app_data(db_pool.clone())
             .app_data(email_client.clone())
             .app_data(base_url.clone())
+            .app_data(resume_config.clone())
+            .app_data(headshot_config.clone())
             .app_data(Data::new(HmacSecret(hmac_secret.clone())))
     });
 

@@ -1,9 +1,16 @@
 import React from 'react';
 import { Box, Card, CardContent, CardHeader, Divider, Paper, Typography } from '@mui/material';
+import { SEO } from '../SEO';
 
 export default function Experience() {
     return (
-        <Box sx={{ my: 4 }}>
+        <>
+            <SEO
+                title="Experience"
+                description="Senior Micro-Service Engineer at Cloud Imperium Games. Experience in Scala, event-driven architecture, DevOps, and full-stack development. Background includes Agile IT and finance."
+                keywords="Cloud Imperium Games, Senior Engineer, Scala, Microservices, DevOps, Event-Driven Architecture, Full-Stack Development"
+            />
+            <Box sx={{ my: 4 }}>
             <Paper elevation={5} square={false} sx={{ p: 2 }}>
                 <Card sx={{ m: 2 }}>
                     <CardHeader title="Senior Micro-Service Engineer" subheader="Cloud Imperium Games - 03/2022 - Present"/>
@@ -77,5 +84,6 @@ export default function Experience() {
                 </Card>
             </Paper>
         </Box>
+        </>
     );
 }

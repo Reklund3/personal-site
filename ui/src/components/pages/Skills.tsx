@@ -1,9 +1,16 @@
 import React from 'react';
 import { Box, Paper, Typography } from '@mui/material';
+import { SEO } from '../SEO';
 
 export default function Skills() {
     return (
-        <Box sx={{ my: 4 }}>
+        <>
+            <SEO
+                title="Skills"
+                description="Technical skills including Rust, TypeScript, React, Scala, PostgreSQL, and DevOps tools. Experienced in functional programming, distributed systems, and cloud infrastructure."
+                keywords="Rust, TypeScript, React, Scala, PostgreSQL, DevOps, Kubernetes, Docker, GitLab CI, AWS, Functional Programming"
+            />
+            <Box sx={{ my: 4 }}>
             <Paper elevation={5} square={false} sx={{ p: 2 }}>
                 <Typography variant="h5" component="h5" sx={{mb: 2, textDecoration: 'underline'}}>Soft Skills</Typography>
                 <Typography variant="body1" sx={{mb: 2}}>
@@ -24,5 +31,6 @@ export default function Skills() {
                 </Typography>
             </Paper>
         </Box>
+        </>
     );
 }

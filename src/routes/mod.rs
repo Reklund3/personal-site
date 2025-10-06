@@ -1,16 +1,22 @@
 mod admin;
 mod contact;
+mod headshot;
 mod health_check;
 mod home;
 mod login;
+mod resume;
+mod seo_files;
 mod subscriptions;
 mod subscriptions_confirm;
 
 pub use admin::*;
 pub use contact::*;
+pub use headshot::*;
 pub use health_check::*;
 pub use home::*;
 pub use login::*;
+pub use resume::*;
+pub use seo_files::*;
 pub use subscriptions::*;
 pub use subscriptions_confirm::*;
 
