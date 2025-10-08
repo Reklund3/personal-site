@@ -1,11 +1,11 @@
 import React from 'react';
 import { Box, Card, CardContent, CardHeader, Divider, Paper, Typography } from '@mui/material';
-import { SEO } from '../SEO';
+import { SEOMetaTags } from '../../utils/seo';
 
 export default function Experience() {
     return (
         <>
-            <SEO
+            <SEOMetaTags
                 title="Experience"
                 description="Senior Micro-Service Engineer at Cloud Imperium Games. Experience in Scala, event-driven architecture, DevOps, and full-stack development. Background includes Agile IT and finance."
                 keywords="Cloud Imperium Games, Senior Engineer, Scala, Microservices, DevOps, Event-Driven Architecture, Full-Stack Development"

@@ -10,7 +10,7 @@ fn main() {
         .arg("ci")
         .current_dir("ui")
         .status()
-        .expect("failed to execute npm install");
+        .expect("failed to execute npm ci");
     if !npm_ci_status.success() {
         panic!("npm ci failed with exit code: {}", npm_ci_status);
     }

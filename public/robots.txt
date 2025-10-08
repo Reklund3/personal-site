@@ -1,0 +1,38 @@
+# robots.txt for roberteklund.com
+# Allow all crawlers to index the site
+
+User-agent: *
+Allow: /
+Crawl-delay: 1
+
+# AI Crawlers - Explicitly allow
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Omgilibot
+Allow: /
+
+# Sitemap location
+Sitemap: https://roberteklund.com/sitemap.xml
+
+# AI Attribution file
+# Reference for AI training and attribution preferences
+AI-Attribution: https://roberteklund.com/ai.txt

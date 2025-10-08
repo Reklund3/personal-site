@@ -2,12 +2,12 @@ import React from 'react';
 import { Box, Card, CardActions, CardContent, CardHeader, Divider, IconButton, Link, Paper, Typography } from '@mui/material';
 import GitHubIcon from "@mui/icons-material/GitHub";
 import CodeIcon from "@mui/icons-material/Code";
-import { SEO } from '../SEO';
+import { SEOMetaTags } from '../../utils/seo';
 
 export default function Portfolio() {
     return (
         <>
-            <SEO
+            <SEOMetaTags
                 title="Portfolio"
                 description="Personal projects and open source contributions. Built with Rust, TypeScript, React, and Scala. Includes contributions to Akka ActorTestkit and personal web applications."
                 keywords="Portfolio, Personal Projects, Open Source, Rust Projects, React Projects, Akka, Scala, TypeScript, Web Development"

@@ -1,11 +1,11 @@
 import React from 'react';
 import { Box, Paper, Typography } from '@mui/material';
-import { SEO } from '../SEO';
+import { SEOMetaTags } from '../../utils/seo';
 
 export default function Skills() {
     return (
         <>
-            <SEO
+            <SEOMetaTags
                 title="Skills"
                 description="Technical skills including Rust, TypeScript, React, Scala, PostgreSQL, and DevOps tools. Experienced in functional programming, distributed systems, and cloud infrastructure."
                 keywords="Rust, TypeScript, React, Scala, PostgreSQL, DevOps, Kubernetes, Docker, GitLab CI, AWS, Functional Programming"
