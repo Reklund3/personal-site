@@ -155,9 +155,9 @@ async fn run(
                         PersistentSession::default().session_ttl(Duration::seconds(3600)),
                     )
                     .cookie_name("roberteklund".to_string())
-                    .cookie_secure(
-                        std::env::var("COOKIE_SECURE").unwrap_or("false".to_owned()) == "true",
-                    )
+                    .cookie_secure(tls_enabled)
+                    .cookie_http_only(true)
+                    .cookie_same_site(actix_web::cookie::SameSite::Strict)
                     .cookie_path("/".to_string())
                     .build(),
             )
