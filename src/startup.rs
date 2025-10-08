@@ -1,6 +1,6 @@
 use crate::authentication::reject_anonymous_users;
 use crate::configuration::{DatabaseSettings, Settings};
-use crate::email_client::{ApplicationBaseUrl, EmailClient};
+use crate::email_client::EmailClient;
 use crate::routes::*;
 use actix_files::Files;
 use actix_session::config::PersistentSession;
@@ -40,9 +40,9 @@ impl Application {
         let email_client_timeout = configuration.email_client.timeout();
 
         let email_client = EmailClient::new(
-            configuration.email_client.base_url,
+            configuration.email_client.base_url.clone(),
             sender_email,
-            configuration.email_client.authorization_token,
+            configuration.email_client.authorization_token.clone(),
             email_client_timeout,
         );
 
@@ -62,18 +62,7 @@ impl Application {
         );
         let listener = TcpListener::bind(address)?;
         let port = listener.local_addr().unwrap().port();
-        let server = run(
-            listener,
-            pg_pool,
-            email_client,
-            configuration.application.base_url,
-            configuration.application.hmac_secret,
-            configuration.redis_uri,
-            configuration.application.resume_file_path,
-            configuration.application.headshot_file_path,
-            tls_config,
-        )
-        .await?;
+        let server = run(listener, pg_pool, email_client, configuration, tls_config).await?;
 
         Ok(Self { port, server })
     }
@@ -132,26 +121,28 @@ async fn run(
     listener: TcpListener,
     pg_pool: PgPool,
     email_client: EmailClient,
-    base_url: ApplicationBaseUrl,
-    hmac_secret: Secret<String>,
-    redis_uri: Secret<String>,
-    resume_file_path: String,
-    headshot_file_path: String,
+    configuration: Settings,
     tls_config: Option<rustls::ServerConfig>,
 ) -> Result<Server, anyhow::Error> {
     let db_pool = Data::new(pg_pool);
     let email_client = Data::new(email_client);
-    let base_url = Data::new(base_url.clone());
+    let base_url = Data::new(configuration.application.base_url.clone());
     let resume_config = Data::new(ResumeConfig {
-        file_path: resume_file_path,
+        file_path: configuration.application.resume_file_path,
     });
     let headshot_config = Data::new(HeadshotConfig {
-        file_path: headshot_file_path,
+        file_path: configuration.application.headshot_file_path,
     });
-    let secret_key = Key::from(hmac_secret.expose_secret().as_bytes());
+    let secret_key = Key::from(
+        configuration
+            .application
+            .hmac_secret
+            .expose_secret()
+            .as_bytes(),
+    );
     let message_store = CookieMessageStore::builder(secret_key.clone()).build();
     let message_framework = FlashMessagesFramework::builder(message_store).build();
-    let redis_store = RedisSessionStore::new(redis_uri.expose_secret()).await?;
+    let redis_store = RedisSessionStore::new(configuration.redis_uri.expose_secret()).await?;
     let tls_enabled = tls_config.is_some();
 
     let server_builder = HttpServer::new(move || {
@@ -205,7 +196,9 @@ async fn run(
             .app_data(base_url.clone())
             .app_data(resume_config.clone())
             .app_data(headshot_config.clone())
-            .app_data(Data::new(HmacSecret(hmac_secret.clone())))
+            .app_data(Data::new(HmacSecret(
+                configuration.application.hmac_secret.clone(),
+            )))
     });
 
     let server = match tls_config {
