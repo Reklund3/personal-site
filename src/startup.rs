@@ -142,7 +142,9 @@ async fn run(
     let db_pool = Data::new(pg_pool);
     let email_client = Data::new(email_client);
     let base_url = Data::new(base_url.clone());
-    let resume_config = Data::new(ResumeConfig { file_path: resume_file_path });
+    let resume_config = Data::new(ResumeConfig {
+        file_path: resume_file_path,
+    });
     let headshot_config = Data::new(HeadshotConfig {
         file_path: headshot_file_path,
     });

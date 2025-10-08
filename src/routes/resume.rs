@@ -8,10 +8,7 @@ pub struct ResumeConfig {
 }
 
 #[tracing::instrument(name = "Serving resume", skip(config))]
-pub async fn serve_resume(
-    config: web::Data<ResumeConfig>,
-    _req: HttpRequest,
-) -> Result<NamedFile> {
+pub async fn serve_resume(config: web::Data<ResumeConfig>, _req: HttpRequest) -> Result<NamedFile> {
     let path = PathBuf::from(&config.file_path);
 
     // Validate file exists
@@ -21,11 +18,10 @@ pub async fn serve_resume(
     }
 
     // Validate file size (prevent serving huge files - max 10MB)
-    let metadata = std::fs::metadata(&path)
-        .map_err(|e| {
-            tracing::error!("Failed to read resume metadata: {}", e);
-            actix_web::error::ErrorNotFound("Resume not available")
-        })?;
+    let metadata = std::fs::metadata(&path).map_err(|e| {
+        tracing::error!("Failed to read resume metadata: {}", e);
+        actix_web::error::ErrorNotFound("Resume not available")
+    })?;
 
     if metadata.len() > 10 * 1024 * 1024 {
         tracing::error!("Resume file too large: {} bytes", metadata.len());
@@ -33,19 +29,17 @@ pub async fn serve_resume(
     }
 
     // Verify it's a PDF by checking magic bytes
-    let mut file = std::fs::File::open(&path)
-        .map_err(|e| {
-            tracing::error!("Failed to open resume file: {}", e);
-            actix_web::error::ErrorNotFound("Resume not available")
-        })?;
+    let mut file = std::fs::File::open(&path).map_err(|e| {
+        tracing::error!("Failed to open resume file: {}", e);
+        actix_web::error::ErrorNotFound("Resume not available")
+    })?;
 
     let mut magic = [0u8; 4];
     use std::io::Read;
-    file.read_exact(&mut magic)
-        .map_err(|e| {
-            tracing::error!("Failed to read PDF magic bytes: {}", e);
-            actix_web::error::ErrorNotFound("Resume not available")
-        })?;
+    file.read_exact(&mut magic).map_err(|e| {
+        tracing::error!("Failed to read PDF magic bytes: {}", e);
+        actix_web::error::ErrorNotFound("Resume not available")
+    })?;
 
     if &magic != b"%PDF" {
         tracing::error!("Invalid PDF file at {:?}", path);
