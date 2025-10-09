@@ -188,12 +188,13 @@ pub async fn spawn_app() -> TestApp {
         let mut c = get_configuration().expect("Failed to read configuration.");
         c.database.database_name = Uuid::new_v4().to_string();
         c.application.port = 0;
+        c.application.tls_enabled = false; // Disable TLS for tests
         c.email_client.base_url = ApplicationBaseUrl::parse(email_server.uri()).unwrap();
         c
     };
 
     configure_database(&configuration.database).await;
-    let application = Application::build(configuration.clone(), false)
+    let application = Application::build(configuration.clone())
         .await
         .expect("Failed to build application.");
     let application_port = application.port();

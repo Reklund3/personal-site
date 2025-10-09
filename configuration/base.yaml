@@ -2,6 +2,9 @@ application:
   port: 8080
   host: 0.0.0.0
   hmac_secret: "asljkdhflkjansdv892398h2uin3f9w8newf980cwne9uvnw980evcnsw908nv9u"
+  tls_enabled: false
+  cert_file_path: "./security/cert.pem"
+  key_file_path: "./security/key.pem"
   resume_file_path: "./data/Robert_eklund_resume.pdf"
   headshot_file_path: "./data/Avatar.jpeg"
 database:

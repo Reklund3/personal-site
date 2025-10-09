@@ -28,8 +28,7 @@ pub struct Application {
 }
 
 impl Application {
-    //TODO: Remove the tls_enabled flag once the test specs are updated to work with tls enabled.
-    pub async fn build(configuration: Settings, tls_enabled: bool) -> Result<Self, anyhow::Error> {
+    pub async fn build(configuration: Settings) -> Result<Self, anyhow::Error> {
         // Postgres pool
         let pg_pool: Pool<Postgres> = get_pg_pool(&configuration.database);
 
@@ -47,7 +46,8 @@ impl Application {
         );
 
         // tls config
-        let tls_config: Option<rustls::ServerConfig> = if tls_enabled {
+        // let tls_enabled = configuration.application.tls_enabled;
+        let tls_config: Option<rustls::ServerConfig> = if configuration.application.tls_enabled {
             Some(load_rustls_config(
                 configuration.application.cert_file_path.as_str(),
                 configuration.application.key_file_path.as_str(),
