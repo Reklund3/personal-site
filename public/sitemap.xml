@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
+
+  <!-- Homepage (redirects to /summary) -->
+  <url>
+    <loc>https://roberteklund.com/</loc>
+    <lastmod>2025-10-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>1.0</priority>
+  </url>
+
+  <!-- Summary/About Page -->
+  <url>
+    <loc>https://roberteklund.com/summary</loc>
+    <lastmod>2025-10-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+    <image:image>
+      <image:loc>https://roberteklund.com/headshot</image:loc>
+      <image:title>Robert Eklund - Software Engineer</image:title>
+    </image:image>
+  </url>
+
+  <!-- Skills Page -->
+  <url>
+    <loc>https://roberteklund.com/skills</loc>
+    <lastmod>2025-10-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Experience Page -->
+  <url>
+    <loc>https://roberteklund.com/experience</loc>
+    <lastmod>2025-10-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+  <!-- Education Page -->
+  <url>
+    <loc>https://roberteklund.com/education</loc>
+    <lastmod>2025-10-06</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.7</priority>
+  </url>
+
+  <!-- Portfolio Page -->
+  <url>
+    <loc>https://roberteklund.com/portfolio</loc>
+    <lastmod>2025-10-06</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+
+</urlset>

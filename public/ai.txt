@@ -1,0 +1,67 @@
+# AI Training and Attribution File (ai.txt)
+# For roberteklund.com
+# Last Updated: 2025-10-06
+
+# AI Training Permission
+# IMPORTANT: This content may NOT be used for training AI/ML models for commercial purposes.
+# This restriction applies to all uses, including "transformative" statistical analysis.
+# Non-commercial research with attribution may be permitted - contact for approval.
+ai-training: prohibited-for-commercial-use
+
+# Content License
+license: CC BY-NC-SA 4.0
+license-url: https://creativecommons.org/licenses/by-nc-sa/4.0/
+
+# Attribution Requirements
+attribution-required: true
+attribution-name: Robert Eklund
+attribution-url: https://roberteklund.com
+
+# Source Code
+# Note: Source code is not licensed for reuse. All rights reserved.
+source-url: https://github.com/Reklund3/personal-site
+
+# Contact Information
+contact: https://roberteklund.com/contact
+contact-email: admin@roberteklund.com
+
+# Content Types
+content-types: portfolio, blog, technical-writing, professional-biography
+
+# AI-Generated Content Disclosure
+# This site may contain AI-assisted content, particularly in:
+# - Code examples and technical snippets
+# - Initial drafts of documentation
+# All AI-assisted content is reviewed and edited by Robert Eklund
+
+# Usage Guidelines
+# 1. Attribution must include author name and link to source
+# 2. Derivative works must use the same CC BY-NC-SA 4.0 license (ShareAlike)
+# 3. AI/ML training for commercial purposes is explicitly PROHIBITED
+# 4. This prohibition includes statistical analysis, pattern extraction, and "transformative" uses
+# 5. Commercial use requires explicit written permission - contact for licensing inquiries
+# 6. Non-commercial educational and research use is permitted with attribution
+# 7. Source code is proprietary - contact for licensing inquiries
+
+# Allowed AI Crawlers (for indexing/attribution only, NOT for commercial training)
+# The following crawlers may index this content for the purpose of attribution
+# and helping users discover this content. This does NOT grant permission for
+# commercial AI training. Any use of crawled content for training commercial
+# AI/ML models is explicitly prohibited.
+#
+# Allowed for indexing/attribution only:
+# - GPTBot (OpenAI) - indexing only, not for training
+# - ChatGPT-User (OpenAI) - indexing only, not for training
+# - CCBot (Common Crawl) - non-commercial research only
+# - anthropic-ai (Anthropic) - indexing only, not for training
+# - Claude-Web (Anthropic) - indexing only, not for training
+# - Google-Extended (Google) - indexing only, not for training
+# - PerplexityBot (Perplexity) - indexing only, not for training
+# - Omgilibot (Omgili) - indexing only, not for training
+#
+# Violation of these terms by using crawled content for commercial AI training
+# constitutes breach of the terms of service and may result in legal action.
+
+# Additional Information
+# For more details on content usage, see: https://roberteklund.com/summary
+# For technical implementation details, see: https://github.com/Reklund3/personal-site

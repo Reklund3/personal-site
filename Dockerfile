@@ -15,7 +15,7 @@ COPY . .
 
 ENV SQLX_OFFLINE true
 
-RUN cargo build --release --bin zero2prod
+RUN cargo build --release --bin site
 
 FROM debian:bookworm-slim AS runtime
 
@@ -27,7 +27,7 @@ RUN apt-get update -y && \
     apt-get clean -y && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/zero2prod zero2prod
+COPY --from=builder /app/target/release/site site
 COPY --from=builder /app/ui/dist ui/dist
 COPY configuration configuration
 
@@ -35,8 +35,8 @@ ENV APP_ENVIRONMENT production
 
 RUN groupadd -g 1001 appuser && \
     useradd -u 1001 -g 1001 appuser && \
-    chown -R appuser:appuser zero2prod
+    chown -R appuser:appuser site
 
 USER appuser
 
-ENTRYPOINT ["./zero2prod"]
+ENTRYPOINT ["./site"]

@@ -12,8 +12,7 @@ const Summary = lazy(() => {
 const Skills = lazy(() => import('./components/pages/Skills'));
 const Experience = lazy(() => import('./components/pages/Experience'));
 const Education = lazy(() => import('./components/pages/Education'));
-const OpenSource = lazy(() => import('./components/pages/OpenSource'));
-const Projects = lazy(() => import('./components/pages/Projects'));
+const Portfolio = lazy(() => import('./components/pages/Portfolio'));
 
 // Prefetch components
 const prefetchComponents = () => {
@@ -23,8 +22,7 @@ const prefetchComponents = () => {
         import('./components/pages/Skills'),
         import('./components/pages/Experience'),
         import('./components/pages/Education'),
-        import('./components/pages/OpenSource'),
-        import('./components/pages/Projects')
+        import('./components/pages/Portfolio')
     ];
 
     Promise.all(prefetchPromises).then(() => {
@@ -65,8 +63,10 @@ export default function App() {
                     <Route path="/skills" element={<Skills />} />
                     <Route path="/experience" element={<Experience />} />
                     <Route path="/education" element={<Education />} />
-                    <Route path="/open-source" element={<OpenSource />} />
-                    <Route path="/projects" element={<Projects />} />
+                    <Route path="/portfolio" element={<Portfolio />} />
+                    {/* Redirect old routes to new Portfolio page */}
+                    <Route path="/open-source" element={<Navigate to="/portfolio" replace />} />
+                    <Route path="/projects" element={<Navigate to="/portfolio" replace />} />
                     <Route path="*" element={<Navigate to="/summary" replace />} />
                 </Routes>
             </Suspense>

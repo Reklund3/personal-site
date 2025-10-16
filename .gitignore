@@ -18,8 +18,14 @@ Cargo.lock
 
 */local.yaml
 
+.env
+*/.env
+
 # Ignore security files
 security/
+
+# Ignore data directory (resumes, etc)
+data/
 
 # Ignore node modules and dist dir
 ui/.DS_Store

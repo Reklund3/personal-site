@@ -1,0 +1,27 @@
+# Security files - never share certificates or keys
+security/
+*.pem
+*.key
+*.crt
+
+# Environment files with secrets
+.env
+.env.local
+.env.production
+
+# Configuration files that may contain sensitive data
+configuration/local.yaml
+configuration/production.yaml
+
+# Database dumps
+*.sql
+*.dump
+
+# Build artifacts and dependencies
+target/
+ui/node_modules/
+ui/dist/
+
+# Lock files (usually too large and not needed)
+Cargo.lock
+ui/package-lock.json
