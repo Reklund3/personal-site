@@ -92,6 +92,13 @@ function ResponsiveAppBarComponent({ onHeightMeasured }: ResponsiveAppBarProps) 
                         <Avatar
                             src="/headshot"
                             alt="Robert Eklund"
+                            slotProps={{
+                                img: {
+                                    onError: (e: React.SyntheticEvent<HTMLImageElement>) => {
+                                        e.currentTarget.style.display = 'none';
+                                    }
+                                }
+                            }}
                             sx={{
                                 width: 64,
                                 height: 64,
