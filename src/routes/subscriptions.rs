@@ -9,7 +9,7 @@ use actix_web::{HttpResponse, ResponseError};
 use anyhow::Context;
 use chrono::Utc;
 use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 use serde::Deserialize;
 use sqlx::{Executor, PgPool, Postgres, Transaction};
 use std::fmt::{Debug, Display, Formatter};

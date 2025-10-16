@@ -1,10 +1,10 @@
 use argon2::password_hash::SaltString;
 use argon2::{Algorithm, Argon2, Params, PasswordHasher, Version};
 use secrecy::Secret;
-use site::configuration::{get_configuration, DatabaseSettings};
+use site::configuration::{DatabaseSettings, get_configuration};
 use site::email_client::{ApplicationBaseUrl, EmailClient};
-use site::issue_delivery_worker::{try_execute_task, ExecutionOutcome};
-use site::startup::{get_pg_pool, Application};
+use site::issue_delivery_worker::{ExecutionOutcome, try_execute_task};
+use site::startup::{Application, get_pg_pool};
 use site::telemetry::{get_subscriber, init_subscriber};
 use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::sync::LazyLock;

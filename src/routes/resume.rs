@@ -1,5 +1,5 @@
 use actix_files::NamedFile;
-use actix_web::{web, HttpRequest, Result};
+use actix_web::{HttpRequest, Result, web};
 use std::path::PathBuf;
 
 #[derive(Clone)]

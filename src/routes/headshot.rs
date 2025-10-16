@@ -1,5 +1,5 @@
 use actix_files::NamedFile;
-use actix_web::{web, HttpRequest, HttpResponse, Result};
+use actix_web::{HttpRequest, HttpResponse, Result, web};
 use std::io::Read;
 use std::path::PathBuf;
 
