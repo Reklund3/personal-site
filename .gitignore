@@ -16,6 +16,9 @@ Cargo.lock
 # Ignore the .idea folder
 .idea
 
+# Ignore VS Code
+.vscode
+
 */local.yaml
 
 .env

@@ -1,4 +1,4 @@
-use actix_web::{http::header::ContentType, HttpResponse, Responder};
+use actix_web::{HttpResponse, Responder, http::header::ContentType};
 
 pub async fn home() -> impl Responder {
     HttpResponse::Ok()

@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1.83 as chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.90 AS chef
 WORKDIR /app
 RUN apt update && apt install lld clang nodejs npm -y
 
@@ -13,7 +13,7 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 COPY . .
 
-ENV SQLX_OFFLINE true
+ENV SQLX_OFFLINE=true
 
 RUN cargo build --release --bin site
 
@@ -31,7 +31,7 @@ COPY --from=builder /app/target/release/site site
 COPY --from=builder /app/ui/dist ui/dist
 COPY configuration configuration
 
-ENV APP_ENVIRONMENT production
+ENV APP_ENVIRONMENT=production
 
 RUN groupadd -g 1001 appuser && \
     useradd -u 1001 -g 1001 appuser && \

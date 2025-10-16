@@ -12,9 +12,23 @@ curl command for subscribing
 > curl -i -X POST -d "email=rob@test.com&name=Rob" http://localhost:8080/subscriptions
 
 ## Docker
-To run the docker you will need to pass the security files from the host via the following run option
 
-`-v '/hostpath/':'/run/secrets':'ro'`
+### Building the Docker Image
+```bash
+docker build -t site:latest .
+```
+
+To build with a specific version tag:
+```bash
+docker build -t site:1.0.0 .
+```
+
+### Running the Docker Container
+To run the docker container you will need to pass the security files from the host via the following run option:
+
+```bash
+docker run -v '/hostpath/':'/run/secrets':'ro' site:latest
+```
 
 The configured container path unless modified uses `/run/secrets/` so that swarm users can provide docker secrets.
 

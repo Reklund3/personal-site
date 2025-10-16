@@ -5,8 +5,8 @@ use actix_web::http::StatusCode;
 use actix_web::web::{Data, Json};
 use actix_web::{HttpResponse, ResponseError};
 use serde::{Deserialize, Serialize};
-use sqlx::error::ErrorKind;
 use sqlx::PgPool;
+use sqlx::error::ErrorKind;
 use std::fmt::{Debug, Formatter};
 use uuid::Uuid;
 
