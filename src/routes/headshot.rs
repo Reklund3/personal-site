@@ -123,15 +123,14 @@ pub async fn serve_headshot(
     );
 
     // Check If-None-Match header for 304 Not Modified
-    if let Some(if_none_match) = req.headers().get("if-none-match") {
-        if let Ok(client_etag) = if_none_match.to_str() {
-            if client_etag == etag {
-                tracing::debug!("Headshot not modified, returning 304");
-                return Ok(HttpResponse::NotModified()
-                    .insert_header(("ETag", etag))
-                    .finish());
-            }
-        }
+    if let Some(if_none_match) = req.headers().get("if-none-match")
+        && let Ok(client_etag) = if_none_match.to_str()
+        && client_etag == etag
+    {
+        tracing::debug!("Headshot not modified, returning 304");
+        return Ok(HttpResponse::NotModified()
+            .insert_header(("ETag", etag))
+            .finish());
     }
 
     // Serve the file with proper headers
