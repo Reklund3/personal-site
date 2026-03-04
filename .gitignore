@@ -43,3 +43,5 @@ ui/packages/vite/LICENSE
 ui/dist
 ui/node_modules
 ui/.eslintcache
+ui/.vite
+.vite
