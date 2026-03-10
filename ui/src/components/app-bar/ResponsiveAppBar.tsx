@@ -261,6 +261,14 @@ function ResponsiveAppBarComponent({ onHeightMeasured }: ResponsiveAppBarProps) 
                                 <Typography sx={{ textAlign: 'center' }}>{page}</Typography>
                             </MenuItem>
                         ))}
+                        <MenuItem
+                            component="a"
+                            href="/resume"
+                            onClick={handleCloseNavMenu}
+                        >
+                            <Download sx={{ mr: 1 }} />
+                            <Typography sx={{ textAlign: 'center' }}>Resume</Typography>
+                        </MenuItem>
                     </Menu>
 
                     <CodeIcon sx={{ mr: 1 }} />

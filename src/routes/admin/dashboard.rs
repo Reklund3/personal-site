@@ -17,6 +17,8 @@ pub async fn admin_dashboard(
             .insert_header((LOCATION, "/login"))
             .finish());
     };
+    // Sanitize username to prevent XSS attacks
+    let safe_username: String = ammonia::clean(&username);
     Ok(HttpResponse::Ok()
         .content_type(ContentType::html())
         .body(format!(
@@ -27,7 +29,7 @@ pub async fn admin_dashboard(
     <title>Admin dashboard</title>
 </head>
 <body>
-    <p>Welcome {username}!</p>
+    <p>Welcome {safe_username}!</p>
     <p>Available actions:</p>
     <ol>
         <li><a href="/admin/password">Change password</a></li>
