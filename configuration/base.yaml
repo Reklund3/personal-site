@@ -3,6 +3,7 @@ application:
   host: 0.0.0.0
   hmac_secret: "asljkdhflkjansdv892398h2uin3f9w8newf980cwne9uvnw980evcnsw908nv9u"
   tls_enabled: false
+  worker_enabled: true
   cert_file_path: "./security/cert.pem"
   key_file_path: "./security/key.pem"
   resume_file_path: "./data/Robert_eklund_resume.pdf"

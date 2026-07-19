@@ -22,6 +22,7 @@ pub struct ApplicationSettings {
     pub base_url: ApplicationBaseUrl,
     pub hmac_secret: Secret<String>,
     pub tls_enabled: bool,
+    pub worker_enabled: bool,
     pub cert_file_path: String,
     pub key_file_path: String,
     pub resume_file_path: String,
