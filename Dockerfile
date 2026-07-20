@@ -29,13 +29,14 @@ RUN apt-get update -y && \
 
 COPY --from=builder /app/target/release/site site
 COPY --from=builder /app/ui/dist ui/dist
+COPY --from=builder /app/public public
 COPY configuration configuration
 
 ENV APP_ENVIRONMENT=production
 
 RUN groupadd -g 1001 appuser && \
     useradd -u 1001 -g 1001 appuser && \
-    chown -R appuser:appuser site
+    chown -R appuser:appuser site public
 
 USER appuser
 

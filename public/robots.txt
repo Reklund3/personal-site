@@ -1,38 +1,38 @@
-# robots.txt for roberteklund.com
+# robots.txt for www.roberteklund.us
 # Allow all crawlers to index the site
 
 User-agent: *
 Allow: /
+Disallow: /admin/
 Crawl-delay: 1
 
-# AI Crawlers - Explicitly allow
-User-agent: GPTBot
-Allow: /
-
+# --- AI retrieval/answer bots: allowed ---
+# These fetch pages to answer a live query with a citation back to the
+# source, not to build a training corpus.
 User-agent: ChatGPT-User
 Allow: /
+Disallow: /admin/
 
-User-agent: CCBot
+User-agent: OAI-SearchBot
 Allow: /
+Disallow: /admin/
 
-User-agent: anthropic-ai
+User-agent: Claude-User
 Allow: /
-
-User-agent: Claude-Web
-Allow: /
-
-User-agent: Google-Extended
-Allow: /
+Disallow: /admin/
 
 User-agent: PerplexityBot
 Allow: /
+Disallow: /admin/
 
+# Deny list
+# See /ai.txt for licensing/attribution terms.
 User-agent: Omgilibot
-Allow: /
+Disallow: /
 
 # Sitemap location
-Sitemap: https://roberteklund.com/sitemap.xml
+Sitemap: https://www.roberteklund.us/sitemap.xml
 
 # AI Attribution file
 # Reference for AI training and attribution preferences
-AI-Attribution: https://roberteklund.com/ai.txt
+AI-Attribution: https://www.roberteklund.us/ai.txt
