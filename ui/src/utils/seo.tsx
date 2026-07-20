@@ -25,7 +25,7 @@ export function SEOMetaTags({
   canonical,
   includeProfileTags = false,
 }: SEOMetaTagsProps) {
-  const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://roberteklund.com';
+  const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.roberteklund.us';
   const fullTitle = `${title} | Robert Eklund`;
   const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
   const canonicalUrl = canonical || `${siteUrl}${currentPath}`;
@@ -69,7 +69,7 @@ export function SEOMetaTags({
  * Only include on profile/about pages
  */
 export function PersonSchema({ description }: { description: string }) {
-  const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://roberteklund.com';
+  const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.roberteklund.us';
 
   const personSchema = {
     '@context': 'https://schema.org',

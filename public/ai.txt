@@ -1,5 +1,5 @@
 # AI Training and Attribution File (ai.txt)
-# For roberteklund.com
+# For www.roberteklund.us
 # Last Updated: 2025-10-06
 
 # AI Training Permission
@@ -15,15 +15,15 @@ license-url: https://creativecommons.org/licenses/by-nc-sa/4.0/
 # Attribution Requirements
 attribution-required: true
 attribution-name: Robert Eklund
-attribution-url: https://roberteklund.com
+attribution-url: https://www.roberteklund.us
 
 # Source Code
 # Note: Source code is not licensed for reuse. All rights reserved.
 source-url: https://github.com/Reklund3/personal-site
 
 # Contact Information
-contact: https://roberteklund.com/contact
-contact-email: admin@roberteklund.com
+contact: https://www.roberteklund.us/contact
+contact-email: admin@roberteklund.us
 
 # Content Types
 content-types: portfolio, blog, technical-writing, professional-biography
@@ -52,16 +52,19 @@ content-types: portfolio, blog, technical-writing, professional-biography
 # Allowed for indexing/attribution only:
 # - GPTBot (OpenAI) - indexing only, not for training
 # - ChatGPT-User (OpenAI) - indexing only, not for training
+# - OAI-SearchBot (OpenAI) - indexing only, not for training
 # - CCBot (Common Crawl) - non-commercial research only
 # - anthropic-ai (Anthropic) - indexing only, not for training
-# - Claude-Web (Anthropic) - indexing only, not for training
+# - Claude-User (Anthropic) - indexing only, not for training
 # - Google-Extended (Google) - indexing only, not for training
 # - PerplexityBot (Perplexity) - indexing only, not for training
-# - Omgilibot (Omgili) - indexing only, not for training
+#
+# Not permitted to crawl this site at all (see /robots.txt):
+# - Omgilibot (Omgili)
 #
 # Violation of these terms by using crawled content for commercial AI training
 # constitutes breach of the terms of service and may result in legal action.
 
 # Additional Information
-# For more details on content usage, see: https://roberteklund.com/summary
+# For more details on content usage, see: https://www.roberteklund.us/summary
 # For technical implementation details, see: https://github.com/Reklund3/personal-site
