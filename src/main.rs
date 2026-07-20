@@ -11,14 +11,20 @@ async fn main() -> anyhow::Result<()> {
     init_subscriber(subscriber);
 
     let configuration = get_configuration().expect("Failed to read configuration.");
+    let worker_enabled = configuration.application.worker_enabled;
     let application = Application::build(configuration.clone()).await?;
     let application_task = tokio::spawn(application.run_until_stopped());
-    let worker_task = tokio::spawn(run_worker_until_stopped(configuration));
 
-    tokio::select! {
-        o = application_task => report_exit("API", o),
-        o = worker_task =>  report_exit("Background worker", o),
-    };
+    if worker_enabled {
+        let worker_task = tokio::spawn(run_worker_until_stopped(configuration));
+        tokio::select! {
+            o = application_task => report_exit("API", o),
+            o = worker_task => report_exit("Background worker", o),
+        };
+    } else {
+        tracing::info!("Background worker disabled via configuration; running in API-only mode");
+        report_exit("API", application_task.await);
+    }
 
     Ok(())
 }
