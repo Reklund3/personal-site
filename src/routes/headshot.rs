@@ -130,6 +130,10 @@ pub async fn serve_headshot(
         tracing::debug!("Headshot not modified, returning 304");
         return Ok(HttpResponse::NotModified()
             .insert_header(("ETag", etag))
+            .insert_header((
+                actix_web::http::header::CACHE_CONTROL,
+                "no-cache, must-revalidate",
+            ))
             .finish());
     }
 
@@ -140,10 +144,10 @@ pub async fn serve_headshot(
 
     let mut response = named_file.into_response(&req);
 
-    // Add cache headers
+    // Always require revalidation so an updated headshot is never served stale from cache.
     response.headers_mut().insert(
         actix_web::http::header::CACHE_CONTROL,
-        actix_web::http::header::HeaderValue::from_static("public, max-age=86400"),
+        actix_web::http::header::HeaderValue::from_static("no-cache, must-revalidate"),
     );
 
     // Add ETag header
