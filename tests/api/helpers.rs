@@ -101,6 +101,18 @@ impl TestApp {
         self.get_admin_dashboard().await.text().await.unwrap()
     }
 
+    pub async fn get_admin_contacts(&self, query: &str) -> reqwest::Response {
+        self.api_client
+            .get(format!("{}/admin/contacts{}", self.address, query))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub async fn get_admin_contacts_html(&self, query: &str) -> String {
+        self.get_admin_contacts(query).await.text().await.unwrap()
+    }
+
     pub async fn get_change_password(&self) -> reqwest::Response {
         self.api_client
             .get(&format!("{}/admin/password", &self.address))
