@@ -34,6 +34,7 @@ pub async fn admin_dashboard(
     <ol>
         <li><a href="/admin/password">Change password</a></li>
         <li><a href="/admin/newsletters">Publish newsletter</a></li>
+        <li><a href="/admin/contacts">View contacts</a></li>
         <li>
           <form name="logoutForm" action="/admin/logout" method="post">
             <input type="submit" value="Logout">
