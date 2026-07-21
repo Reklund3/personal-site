@@ -1,5 +1,5 @@
 use actix_files::NamedFile;
-use actix_web::{HttpRequest, Result, web};
+use actix_web::{HttpRequest, HttpResponse, Result, web};
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -7,8 +7,11 @@ pub struct ResumeConfig {
     pub file_path: String,
 }
 
-#[tracing::instrument(name = "Serving resume", skip(config))]
-pub async fn serve_resume(config: web::Data<ResumeConfig>, _req: HttpRequest) -> Result<NamedFile> {
+#[tracing::instrument(name = "Serving resume", skip(config, req))]
+pub async fn serve_resume(
+    config: web::Data<ResumeConfig>,
+    req: HttpRequest,
+) -> Result<HttpResponse> {
     let path = PathBuf::from(&config.file_path);
 
     // Validate file exists
@@ -48,13 +51,25 @@ pub async fn serve_resume(config: web::Data<ResumeConfig>, _req: HttpRequest) ->
 
     tracing::info!("Serving resume from {:?}", path);
 
-    // Serve the file with proper headers for download
-    Ok(NamedFile::open(path)?
+    // NamedFile generates the ETag/Last-Modified headers and answers conditional
+    // requests (If-None-Match / If-Modified-Since) with 304s in into_response.
+    let named_file = NamedFile::open(path)?
+        .use_etag(true)
         .use_last_modified(true)
         .set_content_disposition(actix_web::http::header::ContentDisposition {
             disposition: actix_web::http::header::DispositionType::Attachment,
             parameters: vec![actix_web::http::header::DispositionParam::Filename(
                 "Robert_Eklund_Resume.pdf".to_string(),
             )],
-        }))
+        });
+
+    let mut response = named_file.into_response(&req);
+
+    // Always require revalidation so an updated resume is never served stale from cache.
+    response.headers_mut().insert(
+        actix_web::http::header::CACHE_CONTROL,
+        actix_web::http::header::HeaderValue::from_static("no-cache, must-revalidate"),
+    );
+
+    Ok(response)
 }

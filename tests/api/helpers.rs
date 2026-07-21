@@ -7,6 +7,7 @@ use site::issue_delivery_worker::{ExecutionOutcome, try_execute_task};
 use site::startup::{Application, get_pg_pool};
 use site::telemetry::{get_subscriber, init_subscriber};
 use sqlx::{Connection, Executor, PgConnection, PgPool};
+use std::path::PathBuf;
 use std::sync::LazyLock;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
@@ -33,6 +34,7 @@ pub struct TestApp {
     pub email_client: EmailClient,
     pub pg_pool: PgPool,
     pub test_user: TestUser,
+    pub resume_path: PathBuf,
 }
 
 /// Confirmation links embedded in the request to the email API.
@@ -155,6 +157,40 @@ impl TestApp {
             .expect("Failed to execute request.")
     }
 
+    pub async fn get_resume(&self) -> reqwest::Response {
+        self.api_client
+            .get(&format!("{}/resume", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub async fn get_resume_conditional(&self, etag: &str) -> reqwest::Response {
+        self.api_client
+            .get(&format!("{}/resume", &self.address))
+            .header("If-None-Match", etag)
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub async fn get_headshot(&self) -> reqwest::Response {
+        self.api_client
+            .get(&format!("{}/headshot", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub async fn get_headshot_conditional(&self, etag: &str) -> reqwest::Response {
+        self.api_client
+            .get(&format!("{}/headshot", &self.address))
+            .header("If-None-Match", etag)
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
     pub fn get_confirmation_links(&self, email_request: &wiremock::Request) -> ConfirmationLinks {
         let body: serde_json::Value = serde_json::from_slice(&email_request.body).unwrap();
 
@@ -184,12 +220,29 @@ pub async fn spawn_app() -> TestApp {
 
     let email_server = MockServer::start().await;
 
+    // Static asset fixtures with valid magic bytes so /resume and /headshot serve real files.
+    let assets_dir = std::env::temp_dir().join(format!("site-test-assets-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&assets_dir).expect("Failed to create test assets dir.");
+    let resume_path = assets_dir.join("resume.pdf");
+    std::fs::write(&resume_path, b"%PDF-1.4\ntest resume contents\n")
+        .expect("Failed to write test resume.");
+    let headshot_path = assets_dir.join("headshot.jpeg");
+    std::fs::write(
+        &headshot_path,
+        [
+            0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
+        ],
+    )
+    .expect("Failed to write test headshot.");
+
     let configuration = {
         let mut c = get_configuration().expect("Failed to read configuration.");
         c.database.database_name = Uuid::new_v4().to_string();
         c.application.port = 0;
         c.application.tls_enabled = false; // Disable TLS for tests
         c.email_client.base_url = ApplicationBaseUrl::parse(email_server.uri()).unwrap();
+        c.application.resume_file_path = resume_path.to_str().unwrap().to_string();
+        c.application.headshot_file_path = headshot_path.to_str().unwrap().to_string();
         c
     };
 
@@ -215,6 +268,7 @@ pub async fn spawn_app() -> TestApp {
         email_client: configuration.email_client.client(),
         pg_pool: get_pg_pool(&configuration.database),
         test_user: TestUser::generate(),
+        resume_path,
     };
 
     test_app.test_user.store(&test_app.pg_pool).await;

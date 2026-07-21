@@ -5,5 +5,6 @@ mod helpers;
 mod login;
 mod newsletter;
 mod session_rotation;
+mod static_assets;
 mod subscriptions;
 mod subscriptions_confirm;
