@@ -7,9 +7,9 @@ import theme from './theme';
 import App from './App';
 import ReactiveAppBar from './components/app-bar/ResponsiveAppBar';
 import AppFooter from "./components/footer/AppFooter.tsx";
-import { 
-    createHashRouter, 
-    RouterProvider 
+import {
+    createBrowserRouter,
+    RouterProvider
 } from 'react-router-dom';
 
 function AppLayout() {
@@ -34,41 +34,16 @@ function AppLayout() {
     );
 }
 
-// Create a router with data router capabilities and caching
-const router = createHashRouter(
+// History-based router: real paths (/summary), no hash. The server enumerates
+// these same paths in src/startup.rs so deep links and hard refreshes work.
+const router = createBrowserRouter(
     [
         {
             path: "*",
-            element: <AppLayout />,
-            // Enable caching for all routes
-            loader: async ({ request }) => {
-                // This is a simple way to cache responses
-                const url = new URL(request.url);
-                const pathname = url.hash.replace('#', '') || '/';
-                const cachedData = sessionStorage.getItem(pathname);
-
-                if (cachedData) {
-                    // console.log(`Using cached data for ${pathname}`);
-                    return JSON.parse(cachedData);
-                }
-
-                // console.log(`Caching data for ${pathname}`);
-                // For this example, we're just returning an empty object
-                // In a real app, you might fetch data here
-                const data = {};
-                sessionStorage.setItem(pathname, JSON.stringify(data));
-                return data;
-            }
+            element: <AppLayout />
         }
     ]
 );
-
-// Add event listener to track navigation
-// if (typeof window !== 'undefined') {
-//     window.addEventListener('popstate', () => {
-//         console.log('Navigation occurred:', window.location.pathname);
-//     });
-// }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
