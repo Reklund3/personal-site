@@ -7,11 +7,7 @@ import { SEOMetaTags } from '../../utils/seo';
 export default function Portfolio() {
     return (
         <>
-            <SEOMetaTags
-                title="Portfolio"
-                description="Personal projects and open source contributions. Built with Rust, TypeScript, React, and Scala. Includes contributions to Akka ActorTestkit and personal web applications."
-                keywords="Portfolio, Personal Projects, Open Source, Rust Projects, React Projects, Akka, Scala, TypeScript, Web Development"
-            />
+            <SEOMetaTags path="/portfolio" />
             <Box sx={{ my: 4 }}>
             <Paper elevation={5} square={false} sx={{ p: 3 }}>
                 {/* Personal Projects Section */}

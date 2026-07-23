@@ -186,6 +186,18 @@ async fn run(
             .route("/robots.txt", web::get().to(serve_robots_txt))
             .route("/sitemap.xml", web::get().to(serve_sitemap_xml))
             .route("/ai.txt", web::get().to(serve_ai_txt))
+            // These mirror the client-side routes in ui/src/App.tsx so deep links and
+            // hard refreshes serve the SPA shell (index.html). Anything not listed here
+            // (and not a static asset) falls through to Files and returns a real 404.
+            // Adding a page? Update THREE places in lockstep: ui/src/App.tsx <Routes>,
+            // this list, and public/sitemap.xml.
+            .route("/skills", web::get().to(home))
+            .route("/experience", web::get().to(home))
+            .route("/education", web::get().to(home))
+            .route("/portfolio", web::get().to(home))
+            // Legacy paths the client redirects to /portfolio:
+            .route("/open-source", web::get().to(home))
+            .route("/projects", web::get().to(home))
             .service(
                 Files::new("/", "./ui/dist/")
                     .index_file("index.html")

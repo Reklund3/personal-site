@@ -4,146 +4,108 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Rust web application built with Actix Web serving a React/TypeScript frontend. Originally started as a learning project following "Zero to Production in Rust" by Luca Palmieri, this personal site includes newsletter subscription functionality, admin dashboard, contact forms, and session-based authentication.
+Actix Web (Rust) backend serving a React/TypeScript SPA. Started from "Zero to Production in Rust"
+by Luca Palmieri; now a personal site with newsletter subscriptions, an admin dashboard, contact
+forms, and session-based auth.
 
 ## Architecture
 
-### Backend (Rust/Actix Web)
-- **Entry Points**:
-  - [src/main.rs](src/main.rs) - Main web server
-  - [src/issue_delivery_worker.rs](src/issue_delivery_worker.rs) - Background worker for email delivery
-- **Application Startup**: [src/startup.rs](src/startup.rs) handles server initialization, TLS configuration, middleware setup, and route registration
-- **Configuration**: Multi-environment YAML-based config in [configuration/](configuration/) directory
-  - Supports environment variables with `APP_` prefix and `__` separator (e.g., `APP_APPLICATION__PORT`)
-  - Environments: `local` and `production` (controlled by `APP_ENVIRONMENT`)
-- **Database**: PostgreSQL with sqlx for compile-time checked queries
-- **Session Management**: Redis-backed sessions via actix-session
-- **Authentication**: Session-based auth with argon2 password hashing; middleware in [src/authentication/middleware.rs](src/authentication/middleware.rs)
-- **Email**: Postmark integration for transactional emails and newsletters
-- **Idempotency**: Request idempotency tracking in database to prevent duplicate operations
+**Backend** — entry points [src/main.rs](src/main.rs) (server) and
+[src/issue_delivery_worker.rs](src/issue_delivery_worker.rs) (email queue worker, spawned when
+`worker_enabled`). [src/startup.rs](src/startup.rs) owns TLS, middleware, and all route
+registration. PostgreSQL via sqlx (compile-time checked queries), Redis-backed sessions, argon2
+auth with middleware in [src/authentication/middleware.rs](src/authentication/middleware.rs),
+Postmark email, and DB-backed request idempotency.
 
-### Frontend (React/TypeScript)
-- **Location**: [ui/](ui/) directory
-- **Build**: Vite + TypeScript, built automatically during `cargo build` via [build.rs](build.rs)
-- **Output**: [ui/dist/](ui/dist/) served as static files by Actix
-- **UI Framework**: Material-UI (MUI) with styled-components
+**Frontend** — [ui/](ui/), Vite + TypeScript, output to `ui/dist/`. MUI v6 on its default
+**Emotion** engine; `styled-components` and `@mui/styled-engine-sc` are installed but unused, since
+switching engines needs a `@mui/styled-engine` alias in `vite.config.ts` and there isn't one.
+Routing is react-router v7 `createBrowserRouter` — real paths, no hash.
 
-### Key Modules
-- **routes/**: HTTP handlers organized by feature (admin, login, subscriptions, contact, health check)
-- **domain/**: Domain models with validation (UserEmail, UserName, NewSubscriber, ContactMessage)
-- **idempotency/**: Idempotency key handling and persistence
-- **telemetry/**: Tracing/logging setup using tracing-subscriber
+**Modules** — `routes/` (handlers by feature), `domain/` (validated newtypes), `idempotency/`,
+`telemetry/`.
+
+### UI builds are not automatic
+
+[build.rs](build.rs) declares `cargo:rerun-if-changed` only for `ui/package.json`,
+`ui/package-lock.json`, and `ui/build.rs` (which doesn't exist). Nothing covers `ui/src/**` or
+`ui/index.html`, so editing UI source does not reliably re-run `npm run build`.
+
+That matters because [src/routes/home/mod.rs](src/routes/home/mod.rs) embeds `ui/dist/index.html`
+at **compile time** (`include_str!`) while `Files` serves content-hashed assets from **disk at
+runtime**. When they drift, the HTML points at asset filenames that no longer exist → blank page.
+
+**After changing anything under `ui/`, run `cd ui && npm run build` before `cargo run`.**
+
+### SPA routing contract
+
+Client routes are mirrored server-side so deep links and hard refreshes work. Three places move in
+lockstep: `<Routes>` in [ui/src/App.tsx](ui/src/App.tsx), the `.route(path, ...to(home))` entries in
+[src/startup.rs](src/startup.rs), and [public/sitemap.xml](public/sitemap.xml).
+
+- Those routes must be registered **before** `Files::new("/", "./ui/dist/")` or the static handler wins.
+- There is deliberately **no `default_handler`** — unknown paths fall through to `Files` and return a
+  real 404. A blanket fallback would return 200 for everything and create soft 404s.
+
+[tests/api/spa_routing.rs](tests/api/spa_routing.rs) locks both halves in.
 
 ## Development Commands
 
-### Database Setup
 ```bash
-# Initialize PostgreSQL database (uses Docker by default)
-./scripts/init_db.sh
+./scripts/init_db.sh          # Postgres in Docker + migrations (SKIP_DOCKER=1 to reuse an instance)
+./scripts/init_redis.sh       # Redis in Docker
 
-# Initialize Redis (uses Docker by default)
-./scripts/init_redis.sh
-
-# Skip Docker if you have existing instances
-SKIP_DOCKER=1 ./scripts/init_db.sh
-```
-
-### Rust Backend
-```bash
-# Build the project (includes UI build via build.rs)
-cargo build
-
-# Run the server (requires DATABASE_URL and configuration)
-cargo run
-
-# Run tests
-cargo test
-
-# Run a single test
-cargo test <test_name>
-
-# Run tests with output
-TEST_LOG=1 cargo test
-
-# Format code
+cargo run                     # serve on :8080
+cargo test                    # needs DATABASE_URL exported
+cargo test <name>             # single test; TEST_LOG=1 for output
 cargo fmt
+cargo clippy -- -D warnings   # exact form CI gates on (rust-clippy.yml:115)
 
-# Lint with clippy
-cargo clippy
+SQLX_OFFLINE=true cargo check --tests           # build without a live DB (committed .sqlx/ cache)
+cargo sqlx prepare --workspace -- --all-targets # refresh that cache after changing a query
 
-# Database migrations (requires sqlx-cli)
-# Install: cargo install --version='~0.8' sqlx-cli --no-default-features --features rustls,postgres
-sqlx migrate run
+cd ui && npm ci && npm run build   # npm run dev / preview also available
 ```
 
-### Frontend
-```bash
-cd ui
+sqlx-cli: `cargo install --version='~0.8' sqlx-cli --no-default-features --features rustls,postgres`
 
-# Install dependencies
-npm ci
+### Gotchas
 
-# Development server
-npm run dev
+- **`./scripts/init_db.sh` fails in non-interactive shells** — `docker exec -it` at lines 56/60
+  errors with *"cannot attach stdin to a TTY-enabled container"*. Fine in a real terminal;
+  otherwise run those two `psql` steps without `-it`, then `sqlx database create && sqlx migrate run`.
+- **CI lints without `--all-targets`**, so tests aren't linted. Running `cargo clippy --all-targets`
+  locally surfaces many pre-existing `needless_borrow` warnings in `tests/api/` — not regressions.
+- **`configuration/local.yaml` is tracked** despite the `*/local.yaml` rule in `.gitignore` (the rule
+  doesn't apply to tracked files), so local tweaks ship to everyone if committed.
 
-# Build for production
-npm run build
+## Configuration
 
-# Preview production build
-npm run preview
-```
+YAML in [configuration/](configuration/): `base.yaml` plus `local.yaml` / `production.yaml`, selected
+by `APP_ENVIRONMENT` (default `local`). Env vars override with the `APP_` prefix and `__` separator
+(e.g. `APP_APPLICATION__PORT`). Also honored: `DATABASE_URL`, `COOKIE_SECURE`.
 
-## TLS/HTTPS Configuration
-
-The application supports TLS with rustls. Certificate and key files are required:
-- Default paths: `security/cert.pem` and `security/key.pem`
-- Configurable via `ApplicationSettings.cert_file_path` and `key_file_path`
-- TLS is disabled in tests via the `tls_enabled` flag in `Application::build()`
-- Docker deployments can mount secrets from host via `-v '/hostpath/':'/run/secrets':'ro'`
-
-## Environment Configuration
-
-Required environment variables for local development (or set in configuration YAML):
-- `DATABASE_URL`: PostgreSQL connection string
-- `APP_ENVIRONMENT`: `local` or `production` (defaults to `local`)
-- `COOKIE_SECURE`: Set to `"true"` for HTTPS-only cookies
-
-Configuration files in [configuration/](configuration/):
-- [base.yaml](configuration/base.yaml): Shared configuration
-- `local.yaml` or `production.yaml`: Environment-specific overrides
+TLS uses rustls with `security/cert.pem` and `security/key.pem`, gated by `tls_enabled` (false in
+`base.yaml` and in tests). Docker can mount secrets via `-v '/hostpath/':'/run/secrets':'ro'`.
 
 ## Testing
 
-- Integration tests in [tests/api/](tests/api/)
-- Test helper utilities in [tests/api/helpers.rs](tests/api/helpers.rs)
-- Each test creates isolated database with UUID name
-- Test app spawned with TLS disabled and random port
-- Mock email server using wiremock
-- Test user automatically created with random credentials
+Integration tests in [tests/api/](tests/api/), helpers in
+[tests/api/helpers.rs](tests/api/helpers.rs). Each test spawns the real app on a random port with
+TLS disabled, against a UUID-named database with migrations applied, plus a wiremock email server
+and a randomly-credentialed test user.
 
-## Database Migrations
+## Database
 
-Located in [migrations/](migrations/) directory. Applied automatically during tests. Run manually with `sqlx migrate run`.
+Migrations in [migrations/](migrations/) — applied automatically in tests, `sqlx migrate run`
+manually. Tables: `subscriptions`, `subscription_tokens`, `users`, `newsletter_issues`,
+`issue_delivery_queue`, `idempotency`, `contacts`.
 
-Key tables:
-- `subscriptions`: Newsletter subscribers with confirmation status
-- `subscription_tokens`: Confirmation tokens
-- `users`: Admin users with hashed passwords
-- `newsletter_issues`: Newsletter content
-- `issue_delivery_queue`: Email delivery queue
-- `idempotency`: Request idempotency tracking
-- `contacts`: Contact form submissions
-
-## Background Worker
-
-The issue delivery worker ([src/issue_delivery_worker.rs](src/issue_delivery_worker.rs)) processes the email delivery queue:
-- Polls `issue_delivery_queue` table every 10 seconds when empty
-- Uses PostgreSQL `FOR UPDATE SKIP LOCKED` for concurrent worker support
-- Dequeues, sends email, and deletes task in transaction
-- Includes retry logic with 1-second delay on error
+The delivery worker polls `issue_delivery_queue` every 10s when empty and uses
+`FOR UPDATE SKIP LOCKED` so multiple workers can run; dequeue/send/delete happen in one transaction,
+retrying after 1s on error.
 
 ## Known Improvements
 
-From [README.md](README.md):
-- Need to expire idempotency keys
-- Enhance issue_delivery_queue to use retry count and exponential backoff
+From [README.md](README.md): expire idempotency keys; give `issue_delivery_queue` a retry count and
+exponential backoff.

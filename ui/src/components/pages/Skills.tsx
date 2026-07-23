@@ -62,11 +62,7 @@ export default function Skills() {
 
     return (
         <>
-            <SEOMetaTags
-                title="Skills"
-                description="Technical skills including Rust, TypeScript, React, Scala, PostgreSQL, and DevOps tools. Experienced in functional programming, distributed systems, and cloud infrastructure."
-                keywords="Rust, TypeScript, React, Scala, PostgreSQL, DevOps, Kubernetes, Docker, GitLab CI, AWS, Functional Programming"
-            />
+            <SEOMetaTags path="/skills" />
             <Box sx={{ my: 4 }}>
                 <Paper elevation={5} square={false} sx={{ p: 3 }}>
                     <Typography variant="h5" component="h5" sx={{mb: 3, textDecoration: 'underline'}}>

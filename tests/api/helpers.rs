@@ -30,6 +30,9 @@ pub struct TestApp {
     pub api_client: reqwest::Client,
     pub address: String,
     pub port: u16,
+    // The configured public base URL the server builds canonical/OG URLs from.
+    // Set explicitly in the harness so SEO assertions don't depend on local.yaml.
+    pub base_url: String,
     pub email_server: MockServer,
     pub email_client: EmailClient,
     pub pg_pool: PgPool,
@@ -252,6 +255,10 @@ pub async fn spawn_app() -> TestApp {
         c.database.database_name = Uuid::new_v4().to_string();
         c.application.port = 0;
         c.application.tls_enabled = false; // Disable TLS for tests
+        // Pin the public base URL to a known value so SEO canonical/OG assertions
+        // are independent of whatever local.yaml happens to set.
+        c.application.base_url =
+            ApplicationBaseUrl::parse("http://127.0.0.1:8080".to_string()).unwrap();
         c.email_client.base_url = ApplicationBaseUrl::parse(email_server.uri()).unwrap();
         c.application.resume_file_path = resume_path.to_str().unwrap().to_string();
         c.application.headshot_file_path = headshot_path.to_str().unwrap().to_string();
@@ -276,6 +283,7 @@ pub async fn spawn_app() -> TestApp {
         api_client: client,
         address: format!("http://localhost:{}", application_port),
         port: application_port,
+        base_url: configuration.application.base_url.as_ref().to_string(),
         email_server,
         email_client: configuration.email_client.client(),
         pg_pool: get_pg_pool(&configuration.database),

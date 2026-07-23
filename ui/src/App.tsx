@@ -13,6 +13,7 @@ const Skills = lazy(() => import('./components/pages/Skills'));
 const Experience = lazy(() => import('./components/pages/Experience'));
 const Education = lazy(() => import('./components/pages/Education'));
 const Portfolio = lazy(() => import('./components/pages/Portfolio'));
+const NotFound = lazy(() => import('./components/pages/NotFound'));
 
 // Prefetch components
 const prefetchComponents = () => {
@@ -38,7 +39,6 @@ const LoadingComponent = () => (
 );
 
 export default function App() {
-    // const location = useLocation();
     const [hasPrefetched, setHasPrefetched] = useState(false);
 
     // Prefetch components on initial load
@@ -49,17 +49,11 @@ export default function App() {
         }
     }, [hasPrefetched]);
 
-    // Log navigation for debugging
-    // useEffect(() => {
-    //     console.log('Current route:', location.pathname);
-    // }, [location]);
-
     return (
         <Container maxWidth="lg">
             <Suspense fallback={<LoadingComponent />}>
                 <Routes>
-                    <Route path="/" element={<Navigate to="/summary" replace />} />
-                    <Route path="/summary" element={<Summary />} />
+                    <Route path="/" element={<Summary />} />
                     <Route path="/skills" element={<Skills />} />
                     <Route path="/experience" element={<Experience />} />
                     <Route path="/education" element={<Education />} />
@@ -67,7 +61,7 @@ export default function App() {
                     {/* Redirect old routes to new Portfolio page */}
                     <Route path="/open-source" element={<Navigate to="/portfolio" replace />} />
                     <Route path="/projects" element={<Navigate to="/portfolio" replace />} />
-                    <Route path="*" element={<Navigate to="/summary" replace />} />
+                    <Route path="*" element={<NotFound />} />
                 </Routes>
             </Suspense>
         </Container>

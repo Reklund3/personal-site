@@ -1,106 +1,47 @@
-import React from 'react';
+import { useEffect } from 'react';
+import routes from '../seo/routes.json';
 
 /**
- * SEO metadata utilities for React 19 native metadata support
+ * Client-side SEO.
+ *
+ * The server (src/routes/home/mod.rs) is the single source of truth for every
+ * crawler-facing tag: it injects title, description, canonical, OpenGraph,
+ * Twitter, and JSON-LD into index.html per route at the `<!--SEO-->` marker.
+ * Crawlers and social unfurlers fetch the raw HTML and never run our SPA
+ * navigation, so that server-injected set is what they read.
+ *
+ * The one thing that must still change on client-side navigation is the browser
+ * tab title. We set document.title imperatively rather than rendering a <title>
+ * (and other <meta>/<link>) element. This matters because the app mounts with
+ * createRoot, not hydrateRoot: React has no knowledge of the server-rendered
+ * tags, so any tag it renders is *appended*, producing duplicate
+ * <title>/<meta>/<link>/JSON-LD nodes and a second <link rel="canonical"> built
+ * from window.location.origin that conflicts with the server's (config-derived)
+ * one. Mutating the existing <title> text sidesteps both problems.
  */
 
-interface SEOMetaTagsProps {
+interface RouteMetadata {
   title: string;
   description: string;
   keywords?: string;
   ogType?: 'website' | 'profile' | 'article';
-  canonical?: string;
   includeProfileTags?: boolean;
 }
 
-/**
- * Generate SEO meta tags for a page using React 19 native metadata
- * Usage: Place the returned JSX elements at the top of your component
- */
-export function SEOMetaTags({
-  title,
-  description,
-  keywords,
-  ogType = 'website',
-  canonical,
-  includeProfileTags = false,
-}: SEOMetaTagsProps) {
-  const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.roberteklund.us';
-  const fullTitle = `${title} | Robert Eklund`;
-  const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
-  const canonicalUrl = canonical || `${siteUrl}${currentPath}`;
-
-  return (
-    <>
-      {/* Basic SEO */}
-      <title>{fullTitle}</title>
-      <meta name="description" content={description} />
-      {keywords && <meta name="keywords" content={keywords} />}
-      <meta name="author" content="Robert Eklund" />
-      <link rel="canonical" href={canonicalUrl} />
-
-      {/* OpenGraph Tags */}
-      <meta property="og:title" content={fullTitle} />
-      <meta property="og:description" content={description} />
-      <meta property="og:type" content={ogType} />
-      <meta property="og:url" content={canonicalUrl} />
-      <meta property="og:image" content={`${siteUrl}/headshot`} />
-      <meta property="og:site_name" content="Robert Eklund Portfolio" />
-
-      {/* OpenGraph Profile-specific tags */}
-      {includeProfileTags && (
-        <>
-          <meta property="profile:first_name" content="Robert" />
-          <meta property="profile:last_name" content="Eklund" />
-        </>
-      )}
-
-      {/* Twitter Card Tags */}
-      <meta name="twitter:card" content="summary" />
-      <meta name="twitter:title" content={fullTitle} />
-      <meta name="twitter:description" content={description} />
-      <meta name="twitter:image" content={`${siteUrl}/headshot`} />
-    </>
-  );
-}
+const routesMap: Record<string, RouteMetadata> = routes as Record<string, RouteMetadata>;
 
 /**
- * Generate JSON-LD Person schema for structured data
- * Only include on profile/about pages
+ * Keep the browser tab title in sync with the active route during client-side
+ * navigation. Renders no DOM — meta/OG/canonical/JSON-LD all come from the
+ * server-injected HTML.
  */
-export function PersonSchema({ description }: { description: string }) {
-  const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.roberteklund.us';
+export function SEOMetaTags({ path }: { path: string }) {
+  const meta = routesMap[path] || routesMap['/'];
+  const fullTitle = `${meta.title} | Robert Eklund`;
 
-  const personSchema = {
-    '@context': 'https://schema.org',
-    '@type': 'Person',
-    name: 'Robert Eklund',
-    jobTitle: 'Software Engineer',
-    url: siteUrl,
-    image: `${siteUrl}/headshot`,
-    sameAs: [
-      'https://github.com/Reklund3',
-      'https://www.linkedin.com/in/robert-eklund-64302976/',
-    ],
-    knowsAbout: [
-      'Rust',
-      'Functional Programming',
-      'TypeScript',
-      'React',
-      'Distributed Systems',
-      'Actix Web',
-      'PostgreSQL',
-    ],
-    alumniOf: {
-      '@type': 'Organization',
-      name: 'Texas State University',
-    },
-    description: description,
-  };
+  useEffect(() => {
+    document.title = fullTitle;
+  }, [fullTitle]);
 
-  return (
-    <script type="application/ld+json">
-      {JSON.stringify(personSchema, null, 2)}
-    </script>
-  );
+  return null;
 }
