@@ -1,0 +1,45 @@
+{
+  "/": {
+    "title": "About Me",
+    "description": "Software engineer with expertise in Rust, functional programming, and distributed systems. Former finance professional turned full-stack developer passionate about type safety and scalable infrastructure.",
+    "keywords": "Robert Eklund, Software Engineer, Rust, Functional Programming, TypeScript, React, Actix Web, Scala, DevOps, Backend Developer",
+    "ogType": "profile",
+    "includeProfileTags": true
+  },
+  "/skills": {
+    "title": "Skills",
+    "description": "Technical skills including Rust, TypeScript, React, Scala, PostgreSQL, and DevOps tools. Experienced in functional programming, distributed systems, and cloud infrastructure.",
+    "keywords": "Rust, TypeScript, React, Scala, PostgreSQL, DevOps, Kubernetes, Docker, GitLab CI, AWS, Functional Programming",
+    "ogType": "website"
+  },
+  "/experience": {
+    "title": "Experience",
+    "description": "Senior Micro-Service Engineer at Cloud Imperium Games. Experience in Scala, event-driven architecture, DevOps, and full-stack development. Background includes Agile IT and finance.",
+    "keywords": "Cloud Imperium Games, Senior Engineer, Scala, Microservices, DevOps, Event-Driven Architecture, Full-Stack Development",
+    "ogType": "website"
+  },
+  "/education": {
+    "title": "Education",
+    "description": "Masters in Accounting Information Systems from Texas State University, MBA from St. Edward's University, and full-stack development training from Austin Coding Academy.",
+    "keywords": "Texas State University, St. Edward's University, Austin Coding Academy, Masters in Accounting, MBA, Full-Stack Development",
+    "ogType": "website"
+  },
+  "/portfolio": {
+    "title": "Portfolio",
+    "description": "Personal projects and open source contributions. Built with Rust, TypeScript, React, and Scala. Includes contributions to Akka ActorTestkit and personal web applications.",
+    "keywords": "Portfolio, Personal Projects, Open Source, Rust Projects, React Projects, Akka, Scala, TypeScript, Web Development",
+    "ogType": "website"
+  },
+  "/open-source": {
+    "title": "Portfolio",
+    "description": "Personal projects and open source contributions. Built with Rust, TypeScript, React, and Scala. Includes contributions to Akka ActorTestkit and personal web applications.",
+    "keywords": "Portfolio, Personal Projects, Open Source, Rust Projects, React Projects, Akka, Scala, TypeScript, Web Development",
+    "ogType": "website"
+  },
+  "/projects": {
+    "title": "Portfolio",
+    "description": "Personal projects and open source contributions. Built with Rust, TypeScript, React, and Scala. Includes contributions to Akka ActorTestkit and personal web applications.",
+    "keywords": "Portfolio, Personal Projects, Open Source, Rust Projects, React Projects, Akka, Scala, TypeScript, Web Development",
+    "ogType": "website"
+  }
+}

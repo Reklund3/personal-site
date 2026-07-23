@@ -5,11 +5,7 @@ import { SEOMetaTags } from '../../utils/seo';
 export default function Experience() {
     return (
         <>
-            <SEOMetaTags
-                title="Experience"
-                description="Senior Micro-Service Engineer at Cloud Imperium Games. Experience in Scala, event-driven architecture, DevOps, and full-stack development. Background includes Agile IT and finance."
-                keywords="Cloud Imperium Games, Senior Engineer, Scala, Microservices, DevOps, Event-Driven Architecture, Full-Stack Development"
-            />
+            <SEOMetaTags path="/experience" />
             <Box sx={{ my: 4 }}>
             <Paper elevation={5} square={false} sx={{ p: 2 }}>
                 <Card sx={{ m: 2 }}>

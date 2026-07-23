@@ -1,12 +1,24 @@
 import React from 'react';
+import routes from '../seo/routes.json';
 
 /**
  * SEO metadata utilities for React 19 native metadata support
  */
 
-interface SEOMetaTagsProps {
+interface RouteMetadata {
   title: string;
   description: string;
+  keywords?: string;
+  ogType?: 'website' | 'profile' | 'article';
+  includeProfileTags?: boolean;
+}
+
+const routesMap: Record<string, RouteMetadata> = routes as Record<string, RouteMetadata>;
+
+interface SEOMetaTagsProps {
+  path: string;
+  title?: string;
+  description?: string;
   keywords?: string;
   ogType?: 'website' | 'profile' | 'article';
   canonical?: string;
@@ -18,17 +30,24 @@ interface SEOMetaTagsProps {
  * Usage: Place the returned JSX elements at the top of your component
  */
 export function SEOMetaTags({
-  title,
-  description,
-  keywords,
-  ogType = 'website',
+  path,
+  title: propTitle,
+  description: propDescription,
+  keywords: propKeywords,
+  ogType: propOgType,
   canonical,
-  includeProfileTags = false,
+  includeProfileTags: propIncludeProfileTags,
 }: SEOMetaTagsProps) {
+  const meta = routesMap[path] || routesMap['/'];
+  const title = propTitle || meta.title;
+  const description = propDescription || meta.description;
+  const keywords = propKeywords || meta.keywords;
+  const ogType = propOgType || (meta.ogType as 'website' | 'profile' | 'article') || 'website';
+  const includeProfileTags = propIncludeProfileTags ?? meta.includeProfileTags ?? false;
+
   const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.roberteklund.us';
   const fullTitle = `${title} | Robert Eklund`;
-  const currentPath = typeof window !== 'undefined' ? window.location.pathname : '';
-  const canonicalUrl = canonical || `${siteUrl}${currentPath}`;
+  const canonicalUrl = canonical || `${siteUrl}${path}`;
 
   return (
     <>
@@ -68,8 +87,10 @@ export function SEOMetaTags({
  * Generate JSON-LD Person schema for structured data
  * Only include on profile/about pages
  */
-export function PersonSchema({ description }: { description: string }) {
+export function PersonSchema({ description: propDescription }: { description?: string }) {
   const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://www.roberteklund.us';
+  const meta = routesMap['/'];
+  const description = propDescription || meta?.description || '';
 
   const personSchema = {
     '@context': 'https://schema.org',

@@ -191,7 +191,6 @@ async fn run(
             // (and not a static asset) falls through to Files and returns a real 404.
             // Adding a page? Update THREE places in lockstep: ui/src/App.tsx <Routes>,
             // this list, and public/sitemap.xml.
-            .route("/summary", web::get().to(home))
             .route("/skills", web::get().to(home))
             .route("/experience", web::get().to(home))
             .route("/education", web::get().to(home))

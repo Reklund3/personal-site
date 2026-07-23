@@ -53,8 +53,7 @@ export default function App() {
         <Container maxWidth="lg">
             <Suspense fallback={<LoadingComponent />}>
                 <Routes>
-                    <Route path="/" element={<Navigate to="/summary" replace />} />
-                    <Route path="/summary" element={<Summary />} />
+                    <Route path="/" element={<Summary />} />
                     <Route path="/skills" element={<Skills />} />
                     <Route path="/experience" element={<Experience />} />
                     <Route path="/education" element={<Education />} />

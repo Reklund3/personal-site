@@ -34,7 +34,7 @@ function AppLayout() {
     );
 }
 
-// History-based router: real paths (/summary), no hash. The server enumerates
+// History-based router: real paths (/skills), no hash. The server enumerates
 // these same paths in src/startup.rs so deep links and hard refreshes work.
 const router = createBrowserRouter(
     [

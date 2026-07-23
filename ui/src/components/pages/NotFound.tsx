@@ -22,7 +22,7 @@ export default function NotFound() {
             <Typography variant="body1" color="text.secondary">
                 The page you're looking for doesn't exist.
             </Typography>
-            <Link to="/summary">Back to Summary</Link>
+            <Link to="/">Back to Home</Link>
         </Box>
     );
 }

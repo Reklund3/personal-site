@@ -62,8 +62,8 @@ function ResponsiveAppBarComponent({ onHeightMeasured }: ResponsiveAppBarProps) 
         // Prevent default browser navigation
         event.preventDefault();
         // Only navigate if we're not already on the summary page
-        if (location.pathname !== "/summary" && location.pathname !== "/") {
-            navigate("/summary");
+        if (location.pathname !== "/") {
+            navigate("/");
         }
     }, [location.pathname, navigate]);
 
@@ -127,7 +127,7 @@ function ResponsiveAppBarComponent({ onHeightMeasured }: ResponsiveAppBarProps) 
                                 <Typography
                                     variant="h6"
                                     component="a"
-                                    href="/summary"
+                                    href="/"
                                     onClick={handleLogoClick}
                                     sx={{
                                         fontWeight: 700,
@@ -275,7 +275,7 @@ function ResponsiveAppBarComponent({ onHeightMeasured }: ResponsiveAppBarProps) 
                     <Typography
                         variant="h6"
                         noWrap
-                        href="/summary"
+                        href="/"
                         onClick={handleLogoClick}
                         component="a"
                         sx={{

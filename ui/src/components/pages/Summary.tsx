@@ -3,18 +3,10 @@ import { Box, Paper, Typography, Divider } from '@mui/material';
 import { SEOMetaTags, PersonSchema } from '../../utils/seo';
 
 export default function Summary() {
-    const description = "Software engineer with expertise in Rust, functional programming, and distributed systems. Former finance professional turned full-stack developer passionate about type safety and scalable infrastructure.";
-
     return (
         <>
-            <SEOMetaTags
-                title="About Me"
-                description={description}
-                keywords="Robert Eklund, Software Engineer, Rust, Functional Programming, TypeScript, React, Actix Web, Scala, DevOps, Backend Developer"
-                ogType="profile"
-                includeProfileTags={true}
-            />
-            <PersonSchema description={description} />
+            <SEOMetaTags path="/" />
+            <PersonSchema />
             <Box component="main" sx={{ my: 4 }}>
             <Paper component="article" elevation={5} square={false} sx={{ p: 3 }}>
                 {/* Professional Summary */}
