@@ -1,12 +1,11 @@
 import React from 'react';
 import { Box, Paper, Typography, Divider } from '@mui/material';
-import { SEOMetaTags, PersonSchema } from '../../utils/seo';
+import { SEOMetaTags } from '../../utils/seo';
 
 export default function Summary() {
     return (
         <>
             <SEOMetaTags path="/" />
-            <PersonSchema />
             <Box component="main" sx={{ my: 4 }}>
             <Paper component="article" elevation={5} square={false} sx={{ p: 3 }}>
                 {/* Professional Summary */}

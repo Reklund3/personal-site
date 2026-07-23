@@ -63,8 +63,10 @@ async fn server_renders_route_specific_seo_metadata() {
             "GET {path} should contain description substring '{expected_desc_substring}'"
         );
 
-        let expected_canonical =
-            format!(r#"<link rel="canonical" href="http://127.0.0.1:8080{path}" />"#);
+        let expected_canonical = format!(
+            r#"<link rel="canonical" href="{}{path}" />"#,
+            test_app.base_url
+        );
         assert!(
             body.contains(&expected_canonical),
             "GET {path} should contain canonical link '{expected_canonical}'"
