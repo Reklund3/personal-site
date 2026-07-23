@@ -155,6 +155,6 @@ pub async fn home(req: HttpRequest, base_url: Data<ApplicationBaseUrl>) -> impl 
 
     HttpResponse::Ok()
         .content_type(ContentType::html())
-        .insert_header(("Cache-Control", "max-age=3600, must-revalidate"))
+        .insert_header(("Cache-Control", "max-age=604800, must-revalidate"))
         .body(body)
 }
