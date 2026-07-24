@@ -90,4 +90,12 @@ async fn unknown_path_under_assets_still_returns_404() {
         404,
         "A missing file under /assets should still 404, not fall through to the SPA shell"
     );
+
+    let cache_control = response.headers().get("cache-control");
+    assert_ne!(
+        cache_control.map(|v| v.to_str().unwrap()),
+        Some(IMMUTABLE_CACHE_CONTROL),
+        "A 404 for a missing asset must not carry the immutable Cache-Control directive, or a \
+         browser/CDN could cache the miss for a full year"
+    );
 }
