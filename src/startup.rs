@@ -198,6 +198,22 @@ async fn run(
             // Legacy paths the client redirects to /portfolio:
             .route("/open-source", web::get().to(home))
             .route("/projects", web::get().to(home))
+            // Vite emits content-hashed filenames under /assets (e.g. index-e8E56q4k.js), so
+            // they are safe to cache forever: a new build always produces a new filename.
+            // This dedicated service must stay registered before the catch-all Files below,
+            // or the catch-all (which has no cache headers) would win for /assets/* requests.
+            .service(
+                web::scope("/assets")
+                    .wrap(
+                        middleware::DefaultHeaders::new()
+                            .add(("Cache-Control", "public, max-age=31536000, immutable")),
+                    )
+                    .service(
+                        Files::new("/", "./ui/dist/assets")
+                            .use_etag(true)
+                            .use_last_modified(true),
+                    ),
+            )
             .service(
                 Files::new("/", "./ui/dist/")
                     .index_file("index.html")
