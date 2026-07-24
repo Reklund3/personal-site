@@ -8,6 +8,9 @@ export default function Experience() {
             <SEOMetaTags path="/experience" />
             <Box sx={{ my: 4 }}>
             <Paper elevation={5} square={false} sx={{ p: 2 }}>
+                <Typography variant="h5" component="h1" sx={{ mb: 3, fontWeight: 600 }}>
+                    Experience
+                </Typography>
                 <Card sx={{ m: 2 }}>
                     <CardHeader title="Senior Micro-Service Engineer" subheader="Cloud Imperium Games - 03/2022 - Present"/>
                     <Divider variant="fullWidth" />

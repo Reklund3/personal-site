@@ -19,7 +19,7 @@ function Copyright() {
         >
             {/* Column 1: Copyright & Legal */}
             <Box>
-                <Typography variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
+                <Typography component="p" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
                     Legal
                 </Typography>
                 <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -43,7 +43,7 @@ function Copyright() {
 
             {/* Column 2: Technology Stack */}
             <Box>
-                <Typography variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
+                <Typography component="p" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
                     Built With
                 </Typography>
                 <Stack spacing={0.5}>
@@ -82,7 +82,7 @@ function Copyright() {
 
             {/* Column 3: Licensing & Links */}
             <Box>
-                <Typography variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
+                <Typography component="p" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
                     Resources
                 </Typography>
                 <Stack spacing={0.5}>
@@ -113,7 +113,7 @@ function Copyright() {
 
             {/* Column 4: Social/Connect */}
             <Box>
-                <Typography variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
+                <Typography component="p" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
                     Connect
                 </Typography>
                 <Stack spacing={0.5}>

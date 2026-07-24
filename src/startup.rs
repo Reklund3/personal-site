@@ -8,7 +8,8 @@ use actix_session::config::PersistentSession;
 use actix_session::storage::RedisSessionStore;
 use actix_web::cookie::Key;
 use actix_web::cookie::time::Duration;
-use actix_web::dev::Server;
+use actix_web::dev::{Server, Service};
+use actix_web::http::header;
 use actix_web::middleware::from_fn;
 use actix_web::web::Data;
 use actix_web::{App, HttpServer, middleware, web};
@@ -198,6 +199,38 @@ async fn run(
             // Legacy paths the client redirects to /portfolio:
             .route("/open-source", web::get().to(home))
             .route("/projects", web::get().to(home))
+            // Vite emits content-hashed filenames under /assets (e.g. index-e8E56q4k.js), so
+            // they are safe to cache forever: a new build always produces a new filename.
+            // This dedicated service must stay registered before the catch-all Files below,
+            // or the catch-all (which has no cache headers) would win for /assets/* requests.
+            //
+            // The immutable Cache-Control is only stamped on successful responses. A plain
+            // middleware::DefaultHeaders would also stamp it on the 404 actix-files returns for
+            // a missing asset (it only skips headers already present, and 404s have none), which
+            // would let a browser/CDN cache a missing asset as gone for a full year.
+            .service(
+                web::scope("/assets")
+                    .wrap_fn(|req, srv| {
+                        let fut = srv.call(req);
+                        async move {
+                            let mut res = fut.await?;
+                            if res.status().is_success() {
+                                res.headers_mut().insert(
+                                    header::CACHE_CONTROL,
+                                    header::HeaderValue::from_static(
+                                        "public, max-age=31536000, immutable",
+                                    ),
+                                );
+                            }
+                            Ok(res)
+                        }
+                    })
+                    .service(
+                        Files::new("/", "./ui/dist/assets")
+                            .use_etag(true)
+                            .use_last_modified(true),
+                    ),
+            )
             .service(
                 Files::new("/", "./ui/dist/")
                     .index_file("index.html")

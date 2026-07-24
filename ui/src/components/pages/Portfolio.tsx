@@ -10,6 +10,9 @@ export default function Portfolio() {
             <SEOMetaTags path="/portfolio" />
             <Box sx={{ my: 4 }}>
             <Paper elevation={5} square={false} sx={{ p: 3 }}>
+                <Typography variant="h5" component="h1" sx={{ mb: 3, fontWeight: 600 }}>
+                    Portfolio
+                </Typography>
                 {/* Personal Projects Section */}
                 <Typography variant="h5" component="h2" sx={{ mb: 3, fontWeight: 600 }}>
                     Personal Projects
