@@ -214,7 +214,9 @@ async fn run(
                         let fut = srv.call(req);
                         async move {
                             let mut res = fut.await?;
-                            if res.status().is_success() {
+                            if res.status().is_success()
+                                || res.status() == actix_web::http::StatusCode::NOT_MODIFIED
+                            {
                                 res.headers_mut().insert(
                                     header::CACHE_CONTROL,
                                     header::HeaderValue::from_static(
