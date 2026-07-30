@@ -45,6 +45,54 @@ async fn hashed_asset_is_served_with_immutable_cache_control() {
 }
 
 #[tokio::test]
+async fn conditional_revalidation_304_still_carries_immutable_cache_control() {
+    let test_app = spawn_app().await;
+    let asset_filename = find_hashed_asset_filename();
+    let url = format!("{}/assets/{}", test_app.address, asset_filename);
+
+    // First request obtains the validator (ETag) actix-files emits for the asset.
+    let first = test_app
+        .api_client
+        .get(&url)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+    assert_eq!(first.status().as_u16(), 200);
+    let etag = first
+        .headers()
+        .get("etag")
+        .expect("actix-files should set an ETag on hashed assets")
+        .to_str()
+        .unwrap()
+        .to_owned();
+
+    // A matching If-None-Match makes actix-files return 304 Not Modified. That 304 must still
+    // carry the immutable Cache-Control, otherwise a revalidating client/CDN would lose the
+    // directive. This locks in the explicit NOT_MODIFIED branch in the /assets middleware.
+    let revalidated = test_app
+        .api_client
+        .get(&url)
+        .header("If-None-Match", etag)
+        .send()
+        .await
+        .expect("Failed to execute request.");
+
+    assert_eq!(
+        revalidated.status().as_u16(),
+        304,
+        "A matching If-None-Match should return 304 Not Modified"
+    );
+    assert_eq!(
+        revalidated
+            .headers()
+            .get("cache-control")
+            .map(|v| v.to_str().unwrap()),
+        Some(IMMUTABLE_CACHE_CONTROL),
+        "A 304 revalidation must still carry the immutable Cache-Control directive"
+    );
+}
+
+#[tokio::test]
 async fn html_shell_keeps_its_own_distinct_cache_control() {
     let test_app = spawn_app().await;
 
