@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Paper, Typography, Divider } from '@mui/material';
 import { SEOMetaTags } from '../../utils/seo';
+import PageTitle from '../PageTitle';
 
 export default function Summary() {
     return (
@@ -9,9 +10,7 @@ export default function Summary() {
             <Box component="main" sx={{ my: 4 }}>
             <Paper component="article" elevation={5} square={false} sx={{ p: 3 }}>
                 {/* Professional Summary */}
-                <Typography variant="h5" component="h1" sx={{ mb: 3, fontWeight: 600 }}>
-                    About Me
-                </Typography>
+                <PageTitle>About Me</PageTitle>
                 <Typography variant="body1" sx={{ mb: 4, fontSize: '1.1rem', lineHeight: 1.8 }}>
                     Software engineer with a unique background spanning finance, DevOps, and full-stack development.
                     Passionate about type systems, functional programming, and building scalable infrastructure.
@@ -22,7 +21,7 @@ export default function Summary() {
 
                 <Box component="section" aria-labelledby="background-heading">
                     {/* Background */}
-                    <Typography variant="h6" component="h2" id="background-heading" sx={{ mb: 2, fontWeight: 600 }}>
+                    <Typography variant="h5" component="h2" id="background-heading" sx={{ mb: 2, fontWeight: 600 }}>
                         Background
                     </Typography>
                     <Typography variant="body1" sx={{ mb: 2, lineHeight: 1.7 }}>
@@ -38,7 +37,7 @@ export default function Summary() {
 
                 <Box component="section" aria-labelledby="technical-journey-heading">
                     {/* Technical Journey */}
-                    <Typography variant="h6" component="h2" id="technical-journey-heading" sx={{ mb: 2, fontWeight: 600 }}>
+                    <Typography variant="h5" component="h2" id="technical-journey-heading" sx={{ mb: 2, fontWeight: 600 }}>
                         Technical Journey
                     </Typography>
                 <Typography variant="body1" sx={{ mb: 2, lineHeight: 1.7 }}>

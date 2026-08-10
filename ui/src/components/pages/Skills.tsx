@@ -6,6 +6,7 @@ import StorageIcon from '@mui/icons-material/Storage';
 import BuildIcon from '@mui/icons-material/Build';
 import ConstructionIcon from '@mui/icons-material/Construction';
 import { SEOMetaTags } from '../../utils/seo';
+import PageTitle from '../PageTitle';
 
 export default function Skills() {
     const programmingLanguages = [
@@ -63,11 +64,9 @@ export default function Skills() {
     return (
         <>
             <SEOMetaTags path="/skills" />
-            <Box sx={{ my: 4 }}>
-                <Paper elevation={5} square={false} sx={{ p: 3 }}>
-                    <Typography variant="h5" component="h1" sx={{ mb: 3, fontWeight: 600 }}>
-                        Skills
-                    </Typography>
+            <Box component="main" sx={{ my: 4 }}>
+                <Paper component="article" elevation={5} square={false} sx={{ p: 3 }}>
+                    <PageTitle>Skills</PageTitle>
                     <Typography variant="h5" component="h2" sx={{mb: 3, textDecoration: 'underline'}}>
                         Soft Skills
                     </Typography>

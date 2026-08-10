@@ -112,13 +112,11 @@ async fn html_shell_keeps_its_own_distinct_cache_control() {
         .to_str()
         .unwrap();
 
-    assert_ne!(
-        cache_control, IMMUTABLE_CACHE_CONTROL,
-        "The HTML shell must revalidate, not be cached forever like hashed assets"
-    );
     assert_eq!(
-        cache_control, "max-age=604800, must-revalidate",
-        "The HTML shell's revalidation policy is deliberate and out of scope for asset caching changes"
+        cache_control, "no-cache",
+        "The HTML shell must revalidate on every use, not be cached like hashed assets. A \
+         max-age window here lets a browser keep serving a shell that references hashed asset \
+         filenames a later deploy has already removed, which renders as a blank page."
     );
 }
 
@@ -140,10 +138,11 @@ async fn unknown_path_under_assets_still_returns_404() {
     );
 
     let cache_control = response.headers().get("cache-control");
-    assert_ne!(
+    assert_eq!(
         cache_control.map(|v| v.to_str().unwrap()),
-        Some(IMMUTABLE_CACHE_CONTROL),
-        "A 404 for a missing asset must not carry the immutable Cache-Control directive, or a \
-         browser/CDN could cache the miss for a full year"
+        Some("no-store"),
+        "A 404 for a missing asset must carry an explicit no-store: merely omitting \
+         Cache-Control leaves the response heuristically cacheable under RFC 9111, so a \
+         browser/CDN could still invent its own freshness lifetime and keep serving the miss"
     );
 }

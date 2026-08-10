@@ -3,16 +3,15 @@ import { Box, Card, CardActions, CardContent, CardHeader, Divider, IconButton, L
 import GitHubIcon from "@mui/icons-material/GitHub";
 import CodeIcon from "@mui/icons-material/Code";
 import { SEOMetaTags } from '../../utils/seo';
+import PageTitle from '../PageTitle';
 
 export default function Portfolio() {
     return (
         <>
             <SEOMetaTags path="/portfolio" />
-            <Box sx={{ my: 4 }}>
-            <Paper elevation={5} square={false} sx={{ p: 3 }}>
-                <Typography variant="h5" component="h1" sx={{ mb: 3, fontWeight: 600 }}>
-                    Portfolio
-                </Typography>
+            <Box component="main" sx={{ my: 4 }}>
+            <Paper component="article" elevation={5} square={false} sx={{ p: 3 }}>
+                <PageTitle>Portfolio</PageTitle>
                 {/* Personal Projects Section */}
                 <Typography variant="h5" component="h2" sx={{ mb: 3, fontWeight: 600 }}>
                     Personal Projects

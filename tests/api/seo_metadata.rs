@@ -81,3 +81,56 @@ async fn server_renders_route_specific_seo_metadata() {
         "Home page and Skills page must return different titles"
     );
 }
+
+/// The <h1> must be in the HTML the server sends, not only in the client bundle.
+///
+/// The SPA's page components each render an <h1>, but a crawler that does not execute JavaScript
+/// never runs them: it sees the raw shell, whose body is a single empty <div id="root">. These
+/// assertions are what keep the heading in the server-injected markup at the `<!--SSR-BODY-->`
+/// marker, so the pages have a heading for the consumers that motivated adding one.
+#[tokio::test]
+async fn server_renders_an_h1_for_every_spa_route() {
+    let test_app = spawn_app().await;
+
+    let test_cases = [
+        ("/", "<h1>About Me</h1>"),
+        ("/skills", "<h1>Skills</h1>"),
+        ("/experience", "<h1>Experience</h1>"),
+        ("/education", "<h1>Education</h1>"),
+        ("/portfolio", "<h1>Portfolio</h1>"),
+    ];
+
+    for (path, expected_h1) in test_cases {
+        let response = test_app
+            .api_client
+            .get(format!("{}{}", test_app.address, path))
+            .send()
+            .await
+            .expect("Failed to execute request.");
+
+        assert_eq!(
+            response.status().as_u16(),
+            200,
+            "GET {path} should return 200 OK"
+        );
+
+        let body = response
+            .text()
+            .await
+            .expect("Failed to read response body.");
+
+        assert!(
+            body.contains(expected_h1),
+            "GET {path} should contain the server-rendered heading '{expected_h1}'"
+        );
+
+        // Exactly one, not merely at least one: a second <h1> would give the page two competing
+        // top-level headings once React mounts and renders its own.
+        assert_eq!(
+            body.matches("<h1").count(),
+            1,
+            "GET {path} should contain exactly one <h1>, found {}",
+            body.matches("<h1").count()
+        );
+    }
+}

@@ -8,7 +8,6 @@ function Copyright() {
 
     return (
         <Box
-            component="footer"
             sx={{
                 display: 'grid',
                 gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' },
@@ -18,8 +17,8 @@ function Copyright() {
             }}
         >
             {/* Column 1: Copyright & Legal */}
-            <Box>
-                <Typography component="p" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
+            <Box component="section" aria-labelledby="footer-legal">
+                <Typography id="footer-legal" component="h2" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
                     Legal
                 </Typography>
                 <Typography variant="body2" color="text.secondary" gutterBottom>
@@ -42,8 +41,8 @@ function Copyright() {
             </Box>
 
             {/* Column 2: Technology Stack */}
-            <Box>
-                <Typography component="p" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
+            <Box component="section" aria-labelledby="footer-built-with">
+                <Typography id="footer-built-with" component="h2" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
                     Built With
                 </Typography>
                 <Stack spacing={0.5}>
@@ -81,8 +80,8 @@ function Copyright() {
             </Box>
 
             {/* Column 3: Licensing & Links */}
-            <Box>
-                <Typography component="p" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
+            <Box component="section" aria-labelledby="footer-resources">
+                <Typography id="footer-resources" component="h2" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
                     Resources
                 </Typography>
                 <Stack spacing={0.5}>
@@ -112,8 +111,8 @@ function Copyright() {
             </Box>
 
             {/* Column 4: Social/Connect */}
-            <Box>
-                <Typography component="p" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
+            <Box component="section" aria-labelledby="footer-connect">
+                <Typography id="footer-connect" component="h2" variant="subtitle2" fontWeight={600} gutterBottom color="text.primary">
                     Connect
                 </Typography>
                 <Stack spacing={0.5}>

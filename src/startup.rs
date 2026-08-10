@@ -204,10 +204,15 @@ async fn run(
             // This dedicated service must stay registered before the catch-all Files below,
             // or the catch-all (which has no cache headers) would win for /assets/* requests.
             //
-            // The immutable Cache-Control is only stamped on successful responses. A plain
-            // middleware::DefaultHeaders would also stamp it on the 404 actix-files returns for
-            // a missing asset (it only skips headers already present, and 404s have none), which
-            // would let a browser/CDN cache a missing asset as gone for a full year.
+            // The immutable Cache-Control is only stamped on successful responses (and on the
+            // 304 a revalidation produces). A plain middleware::DefaultHeaders would also stamp
+            // it on the 404 actix-files returns for a missing asset (it only skips headers
+            // already present, and 404s have none), which would let a browser/CDN cache a
+            // missing asset as gone for a full year. It is not enough to just omit the header on
+            // a miss, either: RFC 9111 lists 404 as heuristically cacheable, so a CDN could still
+            // invent its own freshness lifetime and keep serving the miss after the correct asset
+            // deploys. The wrap_fn below stamps an explicit `no-store` on anything that isn't a
+            // success or a 304.
             .service(
                 web::scope("/assets")
                     .wrap_fn(|req, srv| {
@@ -222,6 +227,15 @@ async fn run(
                                     header::HeaderValue::from_static(
                                         "public, max-age=31536000, immutable",
                                     ),
+                                );
+                            } else {
+                                // A 404 here means the asset has not finished deploying, or a
+                                // stale HTML shell is asking for a filename that no longer exists.
+                                // Omitting Cache-Control is not enough: RFC 9111 makes 404
+                                // heuristically cacheable, so a CDN could keep serving the miss.
+                                res.headers_mut().insert(
+                                    header::CACHE_CONTROL,
+                                    header::HeaderValue::from_static("no-store"),
                                 );
                             }
                             Ok(res)
