@@ -6,6 +6,7 @@ import StorageIcon from '@mui/icons-material/Storage';
 import BuildIcon from '@mui/icons-material/Build';
 import ConstructionIcon from '@mui/icons-material/Construction';
 import { SEOMetaTags } from '../../utils/seo';
+import PageTitle from '../PageTitle';
 
 export default function Skills() {
     const programmingLanguages = [
@@ -63,9 +64,10 @@ export default function Skills() {
     return (
         <>
             <SEOMetaTags path="/skills" />
-            <Box sx={{ my: 4 }}>
-                <Paper elevation={5} square={false} sx={{ p: 3 }}>
-                    <Typography variant="h5" component="h5" sx={{mb: 3, textDecoration: 'underline'}}>
+            <Box component="main" sx={{ my: 4 }}>
+                <Paper component="article" elevation={5} square={false} sx={{ p: 3 }}>
+                    <PageTitle>Skills</PageTitle>
+                    <Typography variant="h5" component="h2" sx={{mb: 3, textDecoration: 'underline'}}>
                         Soft Skills
                     </Typography>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 4}}>
@@ -76,13 +78,13 @@ export default function Skills() {
                         <Chip label="Leadership" variant="outlined" />
                     </Stack>
 
-                    <Typography variant="h5" component="h5" sx={{mb: 3, textDecoration: 'underline'}}>
+                    <Typography variant="h5" component="h2" sx={{mb: 3, textDecoration: 'underline'}}>
                         Technical Skills
                     </Typography>
 
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                         <CodeIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                        <Typography variant="h6">Programming Languages</Typography>
+                        <Typography variant="h6" component="h3">Programming Languages</Typography>
                     </Box>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 3}}>
                         {programmingLanguages.map(lang => (
@@ -104,7 +106,7 @@ export default function Skills() {
 
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                         <CloudIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                        <Typography variant="h6">Cloud & Infrastructure</Typography>
+                        <Typography variant="h6" component="h3">Cloud & Infrastructure</Typography>
                     </Box>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 3}}>
                         {cloudInfra.map(tech => (
@@ -126,7 +128,7 @@ export default function Skills() {
 
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                         <BuildIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                        <Typography variant="h6">Frameworks & Tools</Typography>
+                        <Typography variant="h6" component="h3">Frameworks & Tools</Typography>
                     </Box>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 3}}>
                         {frameworks.map(tech => (
@@ -148,7 +150,7 @@ export default function Skills() {
 
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                         <StorageIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                        <Typography variant="h6">Databases</Typography>
+                        <Typography variant="h6" component="h3">Databases</Typography>
                     </Box>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 3}}>
                         {databases.map(tech => (
@@ -170,7 +172,7 @@ export default function Skills() {
 
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                         <ConstructionIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                        <Typography variant="h6">DevOps & CI/CD</Typography>
+                        <Typography variant="h6" component="h3">DevOps & CI/CD</Typography>
                     </Box>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 3}}>
                         {devops.map(tech => (
@@ -192,7 +194,7 @@ export default function Skills() {
 
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                         <BuildIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                        <Typography variant="h6">Other Tools</Typography>
+                        <Typography variant="h6" component="h3">Other Tools</Typography>
                     </Box>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                         {otherTools.map(tech => (

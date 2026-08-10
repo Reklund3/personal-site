@@ -1,6 +1,7 @@
 mod admin_contacts;
 mod admin_dashboard;
 mod change_password;
+mod hashed_asset_caching;
 mod health_check;
 mod helpers;
 mod login;

@@ -9,6 +9,7 @@ use std::sync::LazyLock;
 struct RouteMetadata {
     title: String,
     description: String,
+    h1: Option<String>,
     keywords: Option<String>,
     og_type: Option<String>,
     include_profile_tags: Option<bool>,
@@ -145,16 +146,36 @@ fn build_seo_tags(path: &str, base_url: &str) -> String {
     tags.join("\n    ")
 }
 
-pub async fn home(req: HttpRequest, base_url: Data<ApplicationBaseUrl>) -> impl Responder {
-    let body = if INDEX_HTML.contains("<!--SEO-->") {
-        let seo_fragment = build_seo_tags(req.path(), base_url.as_ref().as_ref());
-        INDEX_HTML.replace("<!--SEO-->", &seo_fragment)
-    } else {
-        INDEX_HTML.to_string()
-    };
+fn build_ssr_body(path: &str) -> String {
+    let meta = ROUTES
+        .get(path)
+        .or_else(|| ROUTES.get("/"))
+        .expect("Default route metadata missing");
+    let heading = meta.h1.as_deref().unwrap_or(&meta.title);
+    format!(
+        "<h1>{}</h1>\n<p>{}</p>",
+        html_escape(heading),
+        html_escape(&meta.description)
+    )
+}
 
+pub async fn home(req: HttpRequest, base_url: Data<ApplicationBaseUrl>) -> impl Responder {
+    let body = INDEX_HTML
+        .replace(
+            "<!--SEO-->",
+            &build_seo_tags(req.path(), base_url.as_ref().as_ref()),
+        )
+        .replace("<!--SSR-BODY-->", &build_ssr_body(req.path()));
+
+    // `no-cache` means "you may store this, but revalidate before every use" - it does not
+    // disable caching. The previous `max-age=604800, must-revalidate` was a trap:
+    // must-revalidate only forbids serving a response *stale* once it expires, so for a full
+    // week a browser served this shell straight from cache without ever asking us. If a deploy
+    // landed inside that window, the cached HTML still pointed at /assets/index-<oldhash>.js,
+    // which the new build no longer contains - a blank page until the week elapsed. Revalidating
+    // every time is the correct counterpart to caching hashed assets for a year.
     HttpResponse::Ok()
         .content_type(ContentType::html())
-        .insert_header(("Cache-Control", "max-age=604800, must-revalidate"))
+        .insert_header(("Cache-Control", "no-cache"))
         .body(body)
 }

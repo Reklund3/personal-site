@@ -1,13 +1,15 @@
 import React from 'react';
 import { Box, Card, CardContent, CardHeader, Divider, Paper, Typography } from '@mui/material';
 import { SEOMetaTags } from '../../utils/seo';
+import PageTitle from '../PageTitle';
 
 export default function Experience() {
     return (
         <>
             <SEOMetaTags path="/experience" />
-            <Box sx={{ my: 4 }}>
-            <Paper elevation={5} square={false} sx={{ p: 2 }}>
+            <Box component="main" sx={{ my: 4 }}>
+            <Paper component="article" elevation={5} square={false} sx={{ p: 3 }}>
+                <PageTitle>Experience</PageTitle>
                 <Card sx={{ m: 2 }}>
                     <CardHeader title="Senior Micro-Service Engineer" subheader="Cloud Imperium Games - 03/2022 - Present"/>
                     <Divider variant="fullWidth" />

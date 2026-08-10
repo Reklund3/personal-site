@@ -23,6 +23,7 @@ import routes from '../seo/routes.json';
 interface RouteMetadata {
   title: string;
   description: string;
+  h1?: string;
   keywords?: string;
   ogType?: 'website' | 'profile' | 'article';
   includeProfileTags?: boolean;
