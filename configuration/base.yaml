@@ -13,7 +13,7 @@ database:
   port: 5432
   username: "postgres"
   password: "password"
-  database_name: "newsletter"
+  database_name: "personal_site"
   require_ssl: false
 email_client:
   base_url: "https://api.postmarkapp.com"
