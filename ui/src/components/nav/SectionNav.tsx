@@ -5,7 +5,6 @@ import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import { useTheme } from '@mui/material/styles';
 import useScrollTrigger from '@mui/material/useScrollTrigger';
-import { useAppBarHeight } from '../../context/AppBarHeightContext';
 import { useSectionNavHeight } from '../../context/SectionNavHeightContext';
 import { CONTENT } from '../../content';
 
@@ -22,12 +21,12 @@ const SECTION_PATHS = {
 } as const;
 
 export default function SectionNav() {
-  const { appBarHeight } = useAppBarHeight();
   const { setNavHeight } = useSectionNavHeight();
   const navigate = useNavigate();
   const location = useLocation();
   const theme = useTheme();
   const navRef = useRef<HTMLDivElement>(null);
+  const programmaticScrollRef = useRef<string | null>(null);
 
   // Scroll-spy active section state
   const [activeSection, setActiveSection] = useState<string | false>('about');
@@ -127,6 +126,13 @@ export default function SectionNav() {
 
     if (!targetId) return;
 
+    // If this pathname change was triggered by a tab click, skip the auto-scroll
+    // so it doesn't abort the in-flight smooth scroll.
+    if (programmaticScrollRef.current === targetId) {
+      programmaticScrollRef.current = null;
+      return;
+    }
+
     // Wait for layout to settle (after fonts/images), then scroll
     requestAnimationFrame(() => {
       const element = document.getElementById(targetId!);
@@ -150,6 +156,9 @@ export default function SectionNav() {
       const element = document.getElementById(newValue);
       if (!element) return;
 
+      // Flag that this scroll was initiated programmatically by tab click
+      programmaticScrollRef.current = newValue;
+
       // Determine smooth vs instant based on reduced motion
       const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const behavior = prefersReducedMotion ? 'auto' : 'smooth';
@@ -171,7 +180,7 @@ export default function SectionNav() {
       ref={navRef}
       sx={{
         position: 'sticky',
-        top: `${appBarHeight}px`,
+        top: 0,
         zIndex: theme.zIndex.appBar - 1,
         bgcolor: scrolled ? 'rgba(15, 15, 15, 0.97)' : 'rgba(18, 18, 18, 0.8)',
         borderBottom: '1px solid rgba(255, 255, 255, 0.08)',

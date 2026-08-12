@@ -47,7 +47,13 @@ async fn server_renders_identical_seo_metadata_for_all_spa_paths() {
             "GET {path} should contain canonical link '{expected_canonical}'"
         );
 
-        titles.push(expected_title);
+        let actual_title = body
+            .lines()
+            .find(|line| line.contains("<title>"))
+            .expect("Response body should contain <title>")
+            .trim()
+            .to_string();
+        titles.push(actual_title);
     }
 
     // Assert that all paths return the same title proving they serve one canonical

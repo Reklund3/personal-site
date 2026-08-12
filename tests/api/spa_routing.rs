@@ -1,7 +1,15 @@
 use crate::helpers::spawn_app;
 
 // Mirrors the SPA shell routes registered in src/startup.rs.
-const SPA_PATHS: [&str; 5] = ["/", "/skills", "/experience", "/education", "/portfolio"];
+const SPA_PATHS: [&str; 7] = [
+    "/",
+    "/skills",
+    "/experience",
+    "/education",
+    "/portfolio",
+    "/open-source",
+    "/projects",
+];
 
 #[tokio::test]
 async fn known_spa_routes_serve_the_shell() {

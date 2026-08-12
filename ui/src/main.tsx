@@ -5,19 +5,16 @@ import { CssBaseline } from '@mui/material';
 import Box from '@mui/material/Box';
 import theme from './theme';
 import App from './App';
-import ReactiveAppBar from './components/app-bar/ResponsiveAppBar';
 import AppFooter from "./components/footer/AppFooter.tsx";
 import ContactDialog from './components/ContactDialog';
 import {
     createBrowserRouter,
     RouterProvider
 } from 'react-router-dom';
-import { AppBarHeightProvider, useAppBarHeight } from './context/AppBarHeightContext';
 import { ContactDialogProvider, useContactDialog } from './context/ContactDialogContext';
 import { SectionNavHeightProvider } from './context/SectionNavHeightContext';
 
 function AppLayoutContent() {
-    const { appBarHeight } = useAppBarHeight();
     const { open: contactDialogOpen, closeDialog } = useContactDialog();
 
     return (
@@ -26,11 +23,7 @@ function AppLayoutContent() {
             flexDirection: "column",
             minHeight: "100vh", // Ensure content fills at least the full viewport height
         }}>
-            <ReactiveAppBar />
-            <Box sx={{
-                flex: 1,
-                marginTop: `${appBarHeight}px`, // Dynamically apply the margin
-            }}>
+            <Box sx={{ flex: 1 }}>
                 <App />
             </Box>
             <ContactDialog dialogOpen={contactDialogOpen} onClose={closeDialog} />
@@ -41,13 +34,11 @@ function AppLayoutContent() {
 
 function AppLayout() {
     return (
-        <AppBarHeightProvider>
-            <SectionNavHeightProvider>
-                <ContactDialogProvider>
-                    <AppLayoutContent />
-                </ContactDialogProvider>
-            </SectionNavHeightProvider>
-        </AppBarHeightProvider>
+        <SectionNavHeightProvider>
+            <ContactDialogProvider>
+                <AppLayoutContent />
+            </ContactDialogProvider>
+        </SectionNavHeightProvider>
     );
 }
 
