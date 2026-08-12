@@ -1,15 +1,27 @@
 import React from 'react';
 import Box from '@mui/material/Box';
+import Masthead from '../sections/Masthead';
+import AboutSection from '../sections/AboutSection';
+import SkillsSection from '../sections/SkillsSection';
+import ExperienceSection from '../sections/ExperienceSection';
+import EducationSection from '../sections/EducationSection';
+import PortfolioSection from '../sections/PortfolioSection';
+import Copyright from '../Copyright';
 
 /**
- * OnePager component - the main layout for the scrolling one-pager design.
- * Phase 4 will populate this with actual section components (Masthead, About, Skills, Experience, Education, Portfolio, Footer).
- * For now, this is a minimal placeholder.
+ * OnePager component - the main scrolling one-pager layout.
+ * Contains: Masthead → About → Skills → Experience → Education → Portfolio → Footer
  */
 export default function OnePager() {
     return (
         <Box>
-            {/* Placeholder for section bands - Phase 4 will add Masthead, About, Skills, Experience, Education, Portfolio sections */}
+            <Masthead />
+            <AboutSection />
+            <SkillsSection />
+            <ExperienceSection />
+            <EducationSection />
+            <PortfolioSection />
+            <Copyright />
         </Box>
     );
 }
