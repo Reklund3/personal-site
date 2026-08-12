@@ -1,17 +1,24 @@
 import React from 'react';
-import Timeline from '@mui/lab/Timeline';
-import TimelineItem from '@mui/lab/TimelineItem';
-import TimelineSeparator from '@mui/lab/TimelineSeparator';
-import TimelineConnector from '@mui/lab/TimelineConnector';
-import TimelineContent from '@mui/lab/TimelineContent';
+import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { useTheme } from '@mui/material/styles';
 import Section from './Section';
 import { CONTENT } from '../../content';
 
+/**
+ * Experience zigzag timeline.
+ *
+ * Deliberately NOT built on @mui/lab's <Timeline>. The design's centre rule is a
+ * single absolutely-positioned element spanning the full height of the section
+ * (handoff markup line 459: `position:absolute;left:50%;top:0;bottom:0`), whereas
+ * Timeline composes the rule out of one <TimelineConnector> per item — which leaves
+ * a visible gap at every item boundary and cannot reach above the first entry or
+ * below the last. TimelineSeparator also consumes width inside the flex row, so the
+ * design's plain `justify-content` + `width:46%` cannot be expressed through it.
+ * That is a structural mismatch, not a styling one; no specificity override fixes it.
+ *
+ * @mui/lab is still used for <Masonry> in PortfolioSection.
+ */
 export default function ExperienceSection() {
-  const theme = useTheme();
-
   return (
     <Section
       id="experience"
@@ -20,97 +27,98 @@ export default function ExperienceSection() {
       eyebrowGap={22}
       centerEyebrow={true}
     >
-      <Timeline
-        position="alternate"
-        sx={{
-          p: 0,
-          m: 0,
-          // `&&&` is deliberate, not a typo. @mui/lab's own TimelineItem rules are
-          // inserted AFTER this sx block, so anything that merely ties on specificity
-          // loses. Each repetition of `&` adds one class's worth of weight:
-          //   ours `& .MuiTimelineItem-root::before`            (0,2,1)
-          //   lab  `&:not(:has(.MuiTimelineOppositeContent-root))::before` (0,2,1)  tie -> lab wins
-          //   ours `&&& .MuiTimelineContent-root`               (0,4,0)
-          //   lab  `&:nth-of-type(even) .MuiTimelineContent-root`(0,3,0)  we win
-          // The text-align rule is the one that genuinely needs three; the rest use it
-          // for consistency so nobody "tidies" one back down and silently breaks it.
-          '&&& .MuiTimelineItem-root::before': {
-            flex: '0 0 46%',
-            p: 0,
-          },
-          '&&& .MuiTimelineContent-root': {
-            flex: '0 0 46%',
-            py: 0,
-          },
-          // Mobile collapse: one left-aligned column, no zigzag, no spacer.
-          // Must out-specify lab's `:nth-of-type(even)` rules, which set both
-          // flex-direction: row-reverse and text-align: right.
-          [theme.breakpoints.down('md')]: {
-            '&&& .MuiTimelineItem-root': {
-              flexDirection: 'row',
-            },
-            '&&& .MuiTimelineItem-root::before': {
-              display: 'none',
-            },
-            '&&& .MuiTimelineContent-root': {
-              flex: 1,
-              textAlign: 'left',
-            },
-          },
-        }}
-      >
-        {CONTENT.experience.map((entry, index) => (
-          <TimelineItem key={index}>
-            <TimelineSeparator>
-              <TimelineConnector
+      <Box sx={{ position: 'relative' }}>
+        {/* The continuous centre rule. Hidden below md, where the zigzag collapses. */}
+        <Box
+          aria-hidden="true"
+          sx={{
+            position: 'absolute',
+            left: '50%',
+            top: 0,
+            bottom: 0,
+            width: '2px',
+            bgcolor: 'rgba(255,255,255,.15)',
+            transform: 'translateX(-1px)',
+            display: { xs: 'none', md: 'block' },
+          }}
+        />
+
+        {/*
+          A list, so assistive tech reads four entries rather than a run of loose
+          paragraphs. DOM order stays chronological — the zigzag is presentational
+          only, driven by index parity, so the reading order matches the mobile stack.
+        */}
+        <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
+          {CONTENT.experience.map((entry, index) => {
+            // Mirrors the handoff's `jobsZigzag` exactly (markup line 962).
+            const isEven = index % 2 === 0;
+            return (
+              <Box
+                component="li"
+                key={`${entry.company}-${entry.title}`}
                 sx={{
-                  width: '2px',
-                  bgcolor: 'rgba(255,255,255,.15)',
-                }}
-              />
-            </TimelineSeparator>
-            <TimelineContent>
-              {/* Job title as h3 */}
-              <Typography
-                component="h3"
-                sx={{
-                  fontSize: 14,
-                  fontWeight: 'bold',
-                  color: 'rgba(255,255,255,.9)',
+                  display: 'flex',
+                  justifyContent: {
+                    xs: 'flex-start',
+                    md: isEven ? 'flex-end' : 'flex-start',
+                  },
+                  mb: '26px',
                 }}
               >
-                {entry.title}
-              </Typography>
-
-              {/* Company and dates */}
-              <Typography
-                sx={{
-                  fontSize: 11.5,
-                  color: 'rgba(255,255,255,.55)',
-                  mb: '8px',
-                }}
-              >
-                {entry.company} · {entry.dates}
-              </Typography>
-
-              {/* Bullets */}
-              {entry.bullets.map((bullet, idx) => (
-                <Typography
-                  key={idx}
+                <Box
                   sx={{
-                    fontSize: 12,
-                    lineHeight: 1.6,
-                    color: 'rgba(255,255,255,.72)',
-                    mb: '4px',
+                    width: { xs: '100%', md: '46%' },
+                    textAlign: { xs: 'left', md: isEven ? 'right' : 'left' },
                   }}
                 >
-                  • {bullet}
-                </Typography>
-              ))}
-            </TimelineContent>
-          </TimelineItem>
-        ))}
-      </Timeline>
+                  <Typography
+                    component="h3"
+                    sx={{
+                      fontSize: 14,
+                      fontWeight: 700,
+                      color: 'rgba(255,255,255,.9)',
+                    }}
+                  >
+                    {entry.title}
+                  </Typography>
+
+                  <Typography
+                    sx={{
+                      fontSize: 11.5,
+                      color: 'rgba(255,255,255,.55)',
+                      mb: '8px',
+                    }}
+                  >
+                    {entry.company} &middot; {entry.dates}
+                  </Typography>
+
+                  {/*
+                    No literal "•" — the handoff renders these as plain lines
+                    (markup line 466). listStyle:none keeps the list semantics
+                    without a glyph a screen reader would announce.
+                  */}
+                  <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
+                    {entry.bullets.map((bullet) => (
+                      <Typography
+                        component="li"
+                        key={bullet}
+                        sx={{
+                          fontSize: 12,
+                          lineHeight: 1.6,
+                          color: 'rgba(255,255,255,.72)',
+                          mb: '4px',
+                        }}
+                      >
+                        {bullet}
+                      </Typography>
+                    ))}
+                  </Box>
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
+      </Box>
     </Section>
   );
 }

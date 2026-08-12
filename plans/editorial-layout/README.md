@@ -183,8 +183,8 @@ This plan replaces the 5-route tabbed SPA with a unified, high-polish scrolling 
     | About bullet lists | `List` / `ListItem` | `@mui/material` ✅ |
     | Project cards | `Card` / `CardContent` / `CardActions` / `Link` | `@mui/material` ✅ |
     | Nav scrolled background | `useScrollTrigger` | `@mui/material` ✅ |
-    | Experience zigzag timeline | `Timeline position="alternate"` | `@mui/lab` ✅ **installed** |
-    | Portfolio masonry | `Masonry sequential` | `@mui/lab` ✅ **installed** |
+    | Experience zigzag timeline | ~~`Timeline`~~ → **hand-rolled** (see below) | n/a |
+    | Portfolio masonry | `Masonry sequential` | `@mui/lab` ✅ **installed, in use** |
 
     **Decision: adopt `@mui/lab`, pinned at `9.0.0-beta.8`. Use `Timeline` for Experience and
     `Masonry` for Portfolio.**
@@ -211,9 +211,23 @@ This plan replaces the 5-route tabbed SPA with a unified, high-polish scrolling 
       is wrong.) `@mui/lab` is the only route, at any version.
     - `@mui/lab@9.0.0-beta.8` peers on `@mui/material: ^9.3.1`, matching what is installed exactly.
 
-    The two overrides the design still needs are specified in Phase 4 Tasks 4.5 and 4.7 — the
-    46% column split, the mobile collapse, and `sequential` ordering for Masonry. They are real
-    work; adopting the components does not make them go away.
+    ⚠️ **`Timeline` was tried and reverted.** It is a structural mismatch with this design, not a
+    styling one, so no amount of override fixes it:
+
+    - The design's centre rule is **one absolutely-positioned element** spanning the section's full
+      height (`position:absolute; left:50%; top:0; bottom:0`, markup line 459). `Timeline` builds
+      the rule from one `TimelineConnector` **per item**, which leaves a gap at every boundary and
+      cannot extend above the first entry or below the last.
+    - `TimelineSeparator` consumes width inside the flex row, so the design's plain
+      `justify-content` + `width: 46%` has no equivalent.
+
+    The Experience section is hand-rolled per the markup — a `position: relative` wrapper, one
+    absolute rule, and `<li>` flex rows with 46% children. `@mui/lab` remains installed and is
+    still used for `Masonry` in Portfolio, which fits cleanly. Net: the dependency earns its place
+    on **one** component, not two — the outcome the pre-upgrade analysis predicted, reached for a
+    different reason than expected.
+
+    The override that does remain real is Masonry's `sequential` ordering (Phase 4 Task 4.7).
 
     Note `@mui/styled-engine-sc` and `styled-components` are installed but **unused** — MUI runs on
     its default Emotion engine, since switching would need a `@mui/styled-engine` alias in
