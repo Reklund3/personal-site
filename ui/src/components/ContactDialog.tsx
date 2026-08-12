@@ -208,20 +208,45 @@ const ContactDialog: React.FC<ContactDialogProps> = ({dialogOpen, onClose}: Cont
             {/* DialogContent */}
             <DialogContent>
                 <Collapse in={isSubmitting}>
-                    <Box display="flex" flexDirection="column" alignItems="center" justifyContent="center" height="100%">
+                    <Box
+                        sx={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            height: "100%"
+                        }}>
                         <CircularProgress size={40} />
                     </Box>
                 </Collapse>
 
                 <Collapse in={!!requestStatus}>
-                    <Box display="flex" alignItems="center" justifyContent="center" height="100%">
+                    <Box
+                        sx={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            height: "100%"
+                        }}>
                         {requestStatus?.success ? (
-                            <Box display="flex" flexDirection="row" alignItems="center" justifyContent="center">
+                            <Box
+                                sx={{
+                                    display: "flex",
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    justifyContent: "center"
+                                }}>
                                 <CheckCircle sx={{ color: 'success.main', m:1 }} />
                                 <Typography variant="body1" align="center">{requestStatus.message}</Typography>
                             </Box>
                         ) : (
-                            <Box display="flex" flexDirection="row" alignItems="center" justifyContent="center">
+                            <Box
+                                sx={{
+                                    display: "flex",
+                                    flexDirection: "row",
+                                    alignItems: "center",
+                                    justifyContent: "center"
+                                }}>
                                 <Dangerous sx={{ color: 'error.main', m:1 }} />
                                 <Typography variant="body1" align="center">{requestStatus?.message}</Typography>
                             </Box>
@@ -312,7 +337,7 @@ const ContactDialog: React.FC<ContactDialogProps> = ({dialogOpen, onClose}: Cont
                 </DialogActions>
             }
         </Dialog>
-    )
+    );
 }
 
 export default ContactDialog;

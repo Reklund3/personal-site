@@ -20,7 +20,9 @@ export default function NotFound() {
             <Typography variant="h4" component="h1">
                 404 - Page not found
             </Typography>
-            <Typography variant="body1" color="text.secondary">
+            <Typography variant="body1" sx={{
+                color: "text.secondary"
+            }}>
                 The page you're looking for doesn't exist.
             </Typography>
             <Link to="/">Back to Home</Link>

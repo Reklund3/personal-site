@@ -70,7 +70,14 @@ export default function Skills() {
                     <Typography variant="h5" component="h2" sx={{mb: 3, textDecoration: 'underline'}}>
                         Soft Skills
                     </Typography>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 4}}>
+                    <Stack
+                        direction="row"
+                        spacing={1}
+                        useFlexGap
+                        sx={{
+                            flexWrap: "wrap",
+                            mb: 4
+                        }}>
                         <Chip label="Team Player" variant="outlined" />
                         <Chip label="Problem Solver" variant="outlined" />
                         <Chip label="Strategic Thinking" variant="outlined" />
@@ -86,7 +93,14 @@ export default function Skills() {
                         <CodeIcon sx={{ mr: 1, color: 'text.secondary' }} />
                         <Typography variant="h6" component="h3">Programming Languages</Typography>
                     </Box>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 3}}>
+                    <Stack
+                        direction="row"
+                        spacing={1}
+                        useFlexGap
+                        sx={{
+                            flexWrap: "wrap",
+                            mb: 3
+                        }}>
                         {programmingLanguages.map(lang => (
                             <Chip
                                 key={lang.name}
@@ -108,7 +122,14 @@ export default function Skills() {
                         <CloudIcon sx={{ mr: 1, color: 'text.secondary' }} />
                         <Typography variant="h6" component="h3">Cloud & Infrastructure</Typography>
                     </Box>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 3}}>
+                    <Stack
+                        direction="row"
+                        spacing={1}
+                        useFlexGap
+                        sx={{
+                            flexWrap: "wrap",
+                            mb: 3
+                        }}>
                         {cloudInfra.map(tech => (
                             <Chip
                                 key={tech.name}
@@ -130,7 +151,14 @@ export default function Skills() {
                         <BuildIcon sx={{ mr: 1, color: 'text.secondary' }} />
                         <Typography variant="h6" component="h3">Frameworks & Tools</Typography>
                     </Box>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 3}}>
+                    <Stack
+                        direction="row"
+                        spacing={1}
+                        useFlexGap
+                        sx={{
+                            flexWrap: "wrap",
+                            mb: 3
+                        }}>
                         {frameworks.map(tech => (
                             <Chip
                                 key={tech.name}
@@ -152,7 +180,14 @@ export default function Skills() {
                         <StorageIcon sx={{ mr: 1, color: 'text.secondary' }} />
                         <Typography variant="h6" component="h3">Databases</Typography>
                     </Box>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 3}}>
+                    <Stack
+                        direction="row"
+                        spacing={1}
+                        useFlexGap
+                        sx={{
+                            flexWrap: "wrap",
+                            mb: 3
+                        }}>
                         {databases.map(tech => (
                             <Chip
                                 key={tech.name}
@@ -174,7 +209,14 @@ export default function Skills() {
                         <ConstructionIcon sx={{ mr: 1, color: 'text.secondary' }} />
                         <Typography variant="h6" component="h3">DevOps & CI/CD</Typography>
                     </Box>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{mb: 3}}>
+                    <Stack
+                        direction="row"
+                        spacing={1}
+                        useFlexGap
+                        sx={{
+                            flexWrap: "wrap",
+                            mb: 3
+                        }}>
                         {devops.map(tech => (
                             <Chip
                                 key={tech.name}
@@ -196,7 +238,9 @@ export default function Skills() {
                         <BuildIcon sx={{ mr: 1, color: 'text.secondary' }} />
                         <Typography variant="h6" component="h3">Other Tools</Typography>
                     </Box>
-                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                    <Stack direction="row" spacing={1} useFlexGap sx={{
+                        flexWrap: "wrap"
+                    }}>
                         {otherTools.map(tech => (
                             <Chip
                                 key={tech.name}
