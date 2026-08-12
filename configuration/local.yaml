@@ -1,6 +1,7 @@
 application:
   host: 127.0.0.1
   base_url: "http://127.0.0.1"
+  worker_enabled: false
   cert_file_path: "./security/cert.pem"
   key_file_path: "./security/key.pem"
 database:
