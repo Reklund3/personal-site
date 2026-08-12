@@ -2,7 +2,6 @@ import React from 'react';
 import Masonry from '@mui/lab/Masonry';
 import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
-import CardActions from '@mui/material/CardActions';
 import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
 import Section from './Section';
@@ -23,9 +22,18 @@ export default function PortfolioSection() {
       >
         {allProjects.map((project, idx) => (
           <Card key={idx}>
+            {/*
+              The handoff card is a SINGLE container with a flat 16px padding
+              (markup line 484): title, paragraphs and the link are all siblings at
+              the same inset. There is no actions region — an earlier version used
+              <CardActions>, which introduced its own box and left the link flush
+              against the card border. MUI's default `&:last-child` bumps the bottom
+              padding to 24px, so it is pinned back to 16px here.
+            */}
             <CardContent
               sx={{
-                pb: 0,
+                p: '16px',
+                '&:last-child': { pb: '16px' },
               }}
             >
               {/* Title as h3 */}
@@ -35,7 +43,9 @@ export default function PortfolioSection() {
                   fontSize: 13.5,
                   fontWeight: 'bold',
                   color: 'rgba(255,255,255,.9)',
-                  mb: project.subheader ? '2px' : '8px',
+                  // Handoff: the title carries mb 8px on its own, but drops to 0 when
+                  // a subheader follows, because the subheader then owns the 8px.
+                  mb: project.subheader ? 0 : '8px',
                 }}
               >
                 {project.title}
@@ -62,21 +72,18 @@ export default function PortfolioSection() {
                     fontSize: 12,
                     lineHeight: 1.6,
                     color: 'rgba(255,255,255,.7)',
-                    mb: '8px',
+                    mb: '6px',
                   }}
                 >
                   {paragraph}
                 </Typography>
               ))}
-            </CardContent>
 
-            {/* Link in CardActions */}
-            <CardActions
-              sx={{
-                p: 0,
-                pt: '8px',
-              }}
-            >
+              {/*
+                Inline <a>, the last child of the same padded box — not a flex row in
+                a separate actions region. 11px per the handoff; the arrow is part of
+                the link text, so it never wraps onto its own line.
+              */}
               <Link
                 href={project.link}
                 color="primary"
@@ -84,19 +91,15 @@ export default function PortfolioSection() {
                 target="_blank"
                 rel="noopener"
                 sx={{
-                  fontSize: 12,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
+                  fontSize: 11,
                   '&:hover': {
                     textDecoration: 'underline',
                   },
                 }}
               >
-                {project.linkLabel ?? 'View on GitHub'}
-                <span>→</span>
+                {project.linkLabel ?? 'View on GitHub'} &#8594;
               </Link>
-            </CardActions>
+            </CardContent>
           </Card>
         ))}
       </Masonry>
