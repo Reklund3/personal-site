@@ -1,4 +1,4 @@
-import React, {useRef, useLayoutEffect, useState, useCallback, memo} from 'react';
+import React, {useRef, useEffect, useState, useCallback, memo} from 'react';
 import AppBar from '@mui/material/AppBar';
 import Avatar from '@mui/material/Avatar';
 import Box from '@mui/material/Box';
@@ -15,26 +15,38 @@ import Download from '@mui/icons-material/Download';
 import GitHub from '@mui/icons-material/GitHub';
 import LinkedIn from '@mui/icons-material/LinkedIn';
 import MenuIcon from '@mui/icons-material/Menu';
-import {menuItemsTitles} from "../constants/constants.ts";
-import ContactDialog from "../ContactDialog.tsx";
 import { useNavigate, useLocation } from 'react-router-dom';
+import { useAppBarHeight } from '../../context/AppBarHeightContext';
+import { useContactDialog } from '../../context/ContactDialogContext';
 
-interface ResponsiveAppBarProps {
-    onHeightMeasured: (height: number) => void;
-}
-
-function ResponsiveAppBarComponent({ onHeightMeasured }: ResponsiveAppBarProps) {
+function ResponsiveAppBarComponent() {
     const appBarRef = useRef<HTMLDivElement>(null);
-    useLayoutEffect(() => {
-        if (appBarRef.current) {
-            // Measure the height of the AppBar
-            onHeightMeasured(appBarRef.current.offsetHeight);
-        }
-    }, [onHeightMeasured]);
+    const { setAppBarHeight, appBarHeight } = useAppBarHeight();
+    const { openDialog } = useContactDialog();
+
+    // Use ResizeObserver to track AppBar height changes
+    useEffect(() => {
+        if (!appBarRef.current) return;
+
+        const resizeObserver = new ResizeObserver(() => {
+            if (appBarRef.current) {
+                const h = appBarRef.current.offsetHeight;
+                // Guard against redundant writes
+                if (h !== appBarHeight) {
+                    setAppBarHeight(h);
+                }
+            }
+        });
+
+        resizeObserver.observe(appBarRef.current);
+
+        return () => {
+            resizeObserver.disconnect();
+        };
+    }, [appBarHeight, setAppBarHeight]);
 
     const navigate = useNavigate();
     const location = useLocation();
-    const [contactDialogOpen, setContactDialogOpen] = useState(false);
     const [anchorElNav, setAnchorElNav] = useState<null | HTMLElement>(null);
 
     const handleOpenNavMenu = useCallback((event: React.MouseEvent<HTMLElement>) => {
@@ -45,34 +57,14 @@ function ResponsiveAppBarComponent({ onHeightMeasured }: ResponsiveAppBarProps) 
         setAnchorElNav(null);
     }, []);
 
-    const handleMenuItemClick = useCallback((menuItem: string) => {
-        handleCloseNavMenu();
-        const path = menuItem === 'Open Source' ? '/open-source' : `/${menuItem.toLowerCase()}`;
-        // Only navigate if we're not already on this path
-        if (location.pathname !== path) {
-            navigate(path);
-        }
-    }, [handleCloseNavMenu, location.pathname, navigate]);
-
-    const handleContactClick = useCallback(() => {
-        setContactDialogOpen(true);
-    }, []);
-
     const handleLogoClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
         // Prevent default browser navigation
         event.preventDefault();
-        // Only navigate if we're not already on the summary page
+        // Only navigate if we're not already on the home page
         if (location.pathname !== "/") {
             navigate("/");
         }
     }, [location.pathname, navigate]);
-
-    const getSelectedOption = useCallback(() => {
-        const path = location.pathname;
-        if (path === '/open-source') return 'Open Source';
-        if (path === '/') return 'Summary';
-        return path.substring(1).charAt(0).toUpperCase() + path.substring(2);
-    }, [location.pathname]);
 
     return (
         <AppBar position="fixed" ref={appBarRef}>
@@ -182,44 +174,18 @@ function ResponsiveAppBarComponent({ onHeightMeasured }: ResponsiveAppBarProps) 
                             </Box>
                         </Box>
 
-                        {/* Row 2: Navigation Links + Contact */}
+                        {/* Row 2: Contact CTA (section nav moved to SectionNav in Phase 5) */}
                         <Box
                             sx={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                justifyContent: 'space-between',
+                                justifyContent: 'flex-end',
                                 py: 1,
                             }}
                         >
-                            {/* Desktop Navigation Links */}
-                            <Box sx={{ display: 'flex', gap: 1 }}>
-                                {menuItemsTitles.map((page) => (
-                                    <Button
-                                        key={page}
-                                        disableRipple={true}
-                                        onClick={(() => handleMenuItemClick(page))}
-                                        sx={{
-                                            color: getSelectedOption() === page ? 'primary' : 'white',
-                                            textDecoration: getSelectedOption() === page ? 'underline' : 'none',
-                                            fontWeight: getSelectedOption() === page ? 'bold' : 'normal',
-                                            whiteSpace: 'nowrap',
-                                            px: 2,
-                                            transition: 'all 0.4s ease-out',
-                                            fontSize: '1rem',
-                                            "&:hover": {
-                                                backgroundColor: "inherit",
-                                            }
-                                        }}
-                                        size={getSelectedOption() === page ? "medium" : "small"}
-                                    >
-                                        {page}
-                                    </Button>
-                                ))}
-                            </Box>
-
                             {/* Contact Button */}
                             <Button
-                                onClick={handleContactClick}
+                                onClick={openDialog}
                                 variant="contained"
                             >
                                 Contact Now
@@ -256,11 +222,6 @@ function ResponsiveAppBarComponent({ onHeightMeasured }: ResponsiveAppBarProps) 
                         onClose={handleCloseNavMenu}
                         sx={{ display: { xs: 'block', md: 'none' } }}
                     >
-                        {menuItemsTitles.map((page) => (
-                            <MenuItem key={page} onClick={(() => handleMenuItemClick(page))}>
-                                <Typography sx={{ textAlign: 'center' }}>{page}</Typography>
-                            </MenuItem>
-                        ))}
                         <MenuItem
                             component="a"
                             href="/resume"
@@ -290,14 +251,12 @@ function ResponsiveAppBarComponent({ onHeightMeasured }: ResponsiveAppBarProps) 
                     </Typography>
 
                     <Button
-                        onClick={handleContactClick}
+                        onClick={openDialog}
                         variant="contained"
                     >
                         Contact Now
                     </Button>
                 </Toolbar>
-
-                <ContactDialog dialogOpen={contactDialogOpen} onClose={() => setContactDialogOpen(false)}/>
             </Container>
         </AppBar>
     );

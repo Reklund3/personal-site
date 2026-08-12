@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import { ThemeProvider } from '@mui/material/styles';
 import { CssBaseline } from '@mui/material';
@@ -7,13 +7,17 @@ import theme from './theme';
 import App from './App';
 import ReactiveAppBar from './components/app-bar/ResponsiveAppBar';
 import AppFooter from "./components/footer/AppFooter.tsx";
+import ContactDialog from './components/ContactDialog';
 import {
     createBrowserRouter,
     RouterProvider
 } from 'react-router-dom';
+import { AppBarHeightProvider, useAppBarHeight } from './context/AppBarHeightContext';
+import { ContactDialogProvider, useContactDialog } from './context/ContactDialogContext';
 
-function AppLayout() {
-    const [appBarHeight, setAppBarHeight] = useState(0);
+function AppLayoutContent() {
+    const { appBarHeight } = useAppBarHeight();
+    const { open: contactDialogOpen, closeDialog } = useContactDialog();
 
     return (
         <Box sx={{
@@ -21,16 +25,26 @@ function AppLayout() {
             flexDirection: "column",
             minHeight: "100vh", // Ensure content fills at least the full viewport height
         }}>
-            <ReactiveAppBar onHeightMeasured={(height) => setAppBarHeight(height)} />
+            <ReactiveAppBar />
             <Box sx={{
                 flex: 1,
                 marginTop: `${appBarHeight}px`, // Dynamically apply the margin
-                padding: 1,
             }}>
                 <App />
             </Box>
+            <ContactDialog dialogOpen={contactDialogOpen} onClose={closeDialog} />
             <AppFooter/>
         </Box>
+    );
+}
+
+function AppLayout() {
+    return (
+        <AppBarHeightProvider>
+            <ContactDialogProvider>
+                <AppLayoutContent />
+            </ContactDialogProvider>
+        </AppBarHeightProvider>
     );
 }
 
