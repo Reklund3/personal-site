@@ -55,8 +55,11 @@ export default function Section({
       >
         <Typography
           variant="eyebrow"
-          color="primary.main"
+          // `color="primary.main"` does NOT work here: on MUI 9 Typography matches
+          // `color` against variants generated from bare palette keys, so a dotted
+          // path silently resolves to nothing. Set it through sx instead.
           sx={{
+            color: 'primary.main',
             mb: `${eyebrowGap}px`,
             textAlign: centerEyebrow ? 'center' : 'left',
           }}

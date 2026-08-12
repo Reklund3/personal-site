@@ -25,23 +25,34 @@ export default function ExperienceSection() {
         sx={{
           p: 0,
           m: 0,
-          '& .MuiTimelineItem-root::before': {
+          // `&&&` is deliberate, not a typo. @mui/lab's own TimelineItem rules are
+          // inserted AFTER this sx block, so anything that merely ties on specificity
+          // loses. Each repetition of `&` adds one class's worth of weight:
+          //   ours `& .MuiTimelineItem-root::before`            (0,2,1)
+          //   lab  `&:not(:has(.MuiTimelineOppositeContent-root))::before` (0,2,1)  tie -> lab wins
+          //   ours `&&& .MuiTimelineContent-root`               (0,4,0)
+          //   lab  `&:nth-of-type(even) .MuiTimelineContent-root`(0,3,0)  we win
+          // The text-align rule is the one that genuinely needs three; the rest use it
+          // for consistency so nobody "tidies" one back down and silently breaks it.
+          '&&& .MuiTimelineItem-root::before': {
             flex: '0 0 46%',
             p: 0,
           },
-          '& .MuiTimelineContent-root': {
+          '&&& .MuiTimelineContent-root': {
             flex: '0 0 46%',
             py: 0,
           },
-          // Mobile collapse
+          // Mobile collapse: one left-aligned column, no zigzag, no spacer.
+          // Must out-specify lab's `:nth-of-type(even)` rules, which set both
+          // flex-direction: row-reverse and text-align: right.
           [theme.breakpoints.down('md')]: {
-            '& .MuiTimelineItem-root': {
+            '&&& .MuiTimelineItem-root': {
               flexDirection: 'row',
             },
-            '& .MuiTimelineItem-root::before': {
+            '&&& .MuiTimelineItem-root::before': {
               display: 'none',
             },
-            '& .MuiTimelineContent-root': {
+            '&&& .MuiTimelineContent-root': {
               flex: 1,
               textAlign: 'left',
             },

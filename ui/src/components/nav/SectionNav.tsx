@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
@@ -147,6 +147,24 @@ export default function SectionNav() {
    */
   const handleTabChange = useCallback(
     (event: React.SyntheticEvent, newValue: string) => {
+      // Each Tab is a real anchor (component={RouterLink}), so let the browser own
+      // modified clicks — cmd/ctrl/shift/alt and middle-click must still open a new
+      // tab. Calling preventDefault() on those would swallow the navigation and
+      // scroll the current page instead.
+      const mouseEvent = event as React.MouseEvent;
+      if (
+        mouseEvent.metaKey ||
+        mouseEvent.ctrlKey ||
+        mouseEvent.shiftKey ||
+        mouseEvent.altKey ||
+        (typeof mouseEvent.button === 'number' && mouseEvent.button !== 0)
+      ) {
+        return;
+      }
+
+      // For plain clicks we take over: preventDefault stops RouterLink's own
+      // navigation (it bails when the event is already defaulted-prevented), so the
+      // smooth scroll below runs and the URL update stays a `replace`.
       event.preventDefault();
 
       // Set active section immediately
@@ -224,6 +242,11 @@ export default function SectionNav() {
             key={id}
             value={id}
             label={label}
+            // Render as a real router anchor. This is MUI's documented "Nav tabs"
+            // pattern and is what gives the nav an href: cmd-click, middle-click,
+            // "copy link address" and crawlable internal links all depend on it.
+            component={RouterLink}
+            to={SECTION_PATHS[id]}
           />
         ))}
       </Tabs>
