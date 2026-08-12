@@ -188,9 +188,10 @@ async fn run(
             .route("/sitemap.xml", web::get().to(serve_sitemap_xml))
             .route("/ai.txt", web::get().to(serve_ai_txt))
             // These mirror the client-side routes in ui/src/App.tsx so deep links and
-            // hard refreshes serve the SPA shell (index.html). Anything not listed here
+            // hard refreshes serve the SPA shell (index.html). All paths render one scrolling
+            // one-pager with a single canonical URL (/). Anything not listed here
             // (and not a static asset) falls through to Files and returns a real 404.
-            // Adding a page? Update THREE places in lockstep: ui/src/App.tsx <Routes>,
+            // Update THREE places in lockstep: ui/src/App.tsx <Routes>,
             // this list, and public/sitemap.xml.
             .route("/skills", web::get().to(home))
             .route("/experience", web::get().to(home))
