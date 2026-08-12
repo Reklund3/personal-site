@@ -36,15 +36,40 @@ This plan replaces the 5-route tabbed SPA with a unified, high-polish scrolling 
 
    | still legal | removed → use `sx` |
    |---|---|
-   | `<Typography color="primary.main">` | `<Typography mb={2}>` |
-   | `<Link color="primary" underline="none">` | `<Stack flexWrap="wrap">` |
-   | `<Typography variant="h4" component="h1">` | `<Box display="flex">` |
-   | `<Box component="section" id="x">` | `<Typography fontWeight={600}>` |
-   | `<Stack direction spacing useFlexGap>` | any `mt`/`mb`/`px`/`py`/`justifyContent`/… |
+   | `<Typography variant="h4" component="h1">` | `<Typography mb={2}>` |
+   | `<Box component="section" id="x">` | `<Stack flexWrap="wrap">` |
+   | `<Stack direction spacing useFlexGap>` | `<Box display="flex">` |
+   | `<Typography color="primary">` *(bare name only — see below)* | `<Typography fontWeight={600}>` |
+   |  | any `mt`/`mb`/`px`/`py`/`justifyContent`/… |
 
-   Note `color` **survives** — it is a real component prop, not just a system prop. It is only
-   spacing/display/flex shorthands that moved. If you inherit v6-style code, the official codemod
-   is `npx @mui/codemod@latest v9.0.0/system-props <path>`.
+   If you inherit v6-style code, the official codemod is
+   `npx @mui/codemod@latest v9.0.0/system-props <path>`.
+
+   ⚠️ **`color` on `Typography` is a trap — it survives as a prop but no longer accepts dotted
+   paths.** In v9 it is matched against a generated variants list built from the palette keys
+   (`Typography/Typography.js:62-74`), so it accepts **only bare names**. A dotted path matches
+   nothing and is **silently discarded** — no type error, no runtime warning, no failing test.
+   Verified against the installed 9.3.1, the complete accepted set is:
+
+   ```
+   primary  secondary  error  warning  info  success
+   textPrimary  textSecondary  textDisabled  textIcon
+   ```
+
+   ```tsx
+   <Typography color="primary.main">      // ❌ silently renders with NO color
+   <Typography color="text.secondary">    // ❌ silently renders with NO color
+   <Typography color="primary">           // ✅
+   <Typography color="textSecondary">     // ✅
+   <Typography sx={{ color: 'primary.main' }}>   // ✅ dotted paths work in sx
+   ```
+
+   **When in doubt use `sx`** — it resolves dotted palette paths correctly and has no such
+   restriction. Grep for this before declaring a phase done, and note the JSX is often multi-line
+   so a single-line pattern will miss it:
+   ```bash
+   grep -rnA3 '<Typography' ui/src/ | grep -E 'color="[a-zA-Z]+\.[a-zA-Z]+"'
+   ```
 
    **(b) `@mui/lab` is still not installed and still not an option** — see decision 10.
 
