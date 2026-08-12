@@ -3,6 +3,7 @@ import Box from '@mui/material/Box';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import { useAppBarHeight } from '../../context/AppBarHeightContext';
+import { useSectionNavHeight } from '../../context/SectionNavHeightContext';
 import { useTheme } from '@mui/material/styles';
 
 interface SectionProps {
@@ -29,14 +30,14 @@ export default function Section({
   children,
 }: SectionProps) {
   const { appBarHeight } = useAppBarHeight();
+  const { navHeight } = useSectionNavHeight();
   const theme = useTheme();
 
   // Determine background color based on band
   const bgColor = band === 'alt' ? theme.palette.surface?.alt : theme.palette.background.default;
 
-  // Calculate scroll margin top: appBarHeight + estimated nav height (64px for Phase 5)
-  // For now, just appBarHeight; Phase 5 will add the sticky nav height
-  const scrollMarginTop = appBarHeight + 64;
+  // Calculate scroll margin top: appBarHeight + navHeight
+  const scrollMarginTop = appBarHeight + navHeight;
 
   return (
     <Box

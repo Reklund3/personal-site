@@ -1,6 +1,7 @@
 import React from 'react';
 import Box from '@mui/material/Box';
 import Masthead from '../sections/Masthead';
+import SectionNav from '../nav/SectionNav';
 import AboutSection from '../sections/AboutSection';
 import SkillsSection from '../sections/SkillsSection';
 import ExperienceSection from '../sections/ExperienceSection';
@@ -16,6 +17,7 @@ export default function OnePager() {
     return (
         <Box>
             <Masthead />
+            <SectionNav />
             <AboutSection />
             <SkillsSection />
             <ExperienceSection />

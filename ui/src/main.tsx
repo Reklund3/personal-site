@@ -14,6 +14,7 @@ import {
 } from 'react-router-dom';
 import { AppBarHeightProvider, useAppBarHeight } from './context/AppBarHeightContext';
 import { ContactDialogProvider, useContactDialog } from './context/ContactDialogContext';
+import { SectionNavHeightProvider } from './context/SectionNavHeightContext';
 
 function AppLayoutContent() {
     const { appBarHeight } = useAppBarHeight();
@@ -41,9 +42,11 @@ function AppLayoutContent() {
 function AppLayout() {
     return (
         <AppBarHeightProvider>
-            <ContactDialogProvider>
-                <AppLayoutContent />
-            </ContactDialogProvider>
+            <SectionNavHeightProvider>
+                <ContactDialogProvider>
+                    <AppLayoutContent />
+                </ContactDialogProvider>
+            </SectionNavHeightProvider>
         </AppBarHeightProvider>
     );
 }
