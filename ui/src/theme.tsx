@@ -1,4 +1,5 @@
 import { createTheme } from '@mui/material/styles';
+import { blue } from '@mui/material/colors';
 
 // Module augmentation for surface token
 declare module '@mui/material/styles' {
@@ -32,8 +33,12 @@ const theme = createTheme({
     colorSchemes: {
         dark: {
             palette: {
+                // `main` is REQUIRED here: SimplePaletteColorOptions declares `main: string`
+                // (not optional), so contrastText cannot be overridden on its own. Sourcing it
+                // from blue[200] rather than a literal keeps it visibly identical to MUI's dark
+                // default instead of forking the accent into a second source of truth.
                 primary: {
-                    main: '#90caf9',
+                    main: blue[200],
                     contrastText: '#062341',
                 },
                 surface: {
@@ -45,7 +50,10 @@ const theme = createTheme({
     defaultColorScheme: 'dark',
     typography: {
         eyebrow: {
-            fontSize: 11.5,
+            // String, not a bare number: with cssVariables enabled MUI generates a
+            // `font` shorthand var per typography key, and a unitless value emits the
+            // invalid `--mui-font-eyebrow: 700 11.5/1`.
+            fontSize: '11.5px',
             fontWeight: 700,
             letterSpacing: '1.5px',
             textTransform: 'uppercase',
@@ -78,7 +86,10 @@ const theme = createTheme({
         MuiButton: {
             styleOverrides: {
                 root: {
-                    borderRadius: 20,
+                    // borderRadius is deliberately NOT set here. 20px is the masthead
+                    // pill radius, not a site-wide value — globally it would also
+                    // restyle every ContactDialog button. The two pills carry it in
+                    // their own sx instead.
                     textTransform: 'none',
                 },
             },

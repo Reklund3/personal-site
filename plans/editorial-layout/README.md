@@ -71,7 +71,8 @@ This plan replaces the 5-route tabbed SPA with a unified, high-polish scrolling 
    grep -rnA3 '<Typography' ui/src/ | grep -E 'color="[a-zA-Z]+\.[a-zA-Z]+"'
    ```
 
-   **(b) `@mui/lab` is still not installed and still not an option** — see decision 10.
+   **(b) `@mui/lab` is installed**, pinned at `9.0.0-beta.8`, supplying `Timeline` and `Masonry` —
+   see decision 10.
 
 4. **Know the build order.** `src/routes/home/mod.rs` embeds `ui/dist/index.html` via `include_str!`
    at **compile time**, while `Files` serves hashed assets from disk at runtime. Any phase that
@@ -90,11 +91,43 @@ This plan replaces the 5-route tabbed SPA with a unified, high-polish scrolling 
    - All SPA routes emit a single canonical URL (`https://www.roberteklund.us/`).
    - `sitemap.xml` collapses to 1 apex URL (`/`).
    - **There is no `/about` path.** The About section's anchor is the apex `/`. See Phase 5.
-2. **App Bar & Navigation**:
-   - `ResponsiveAppBar` remains fixed at the top for site identity (Logo), social links, Resume button, and "Contact Now" CTA button.
-   - Desktop Row 2 section links are removed from `ResponsiveAppBar` and moved entirely into the sticky `SectionNav` strip.
-   - Dynamic height measurement uses a `ResizeObserver` piped through React Context so `SectionNav` sticky offset (`top: appBarHeight`) updates live across window resizes and mobile/desktop breakpoint shifts.
+2. **App Bar & Navigation** — ⚠️ **REVISED during implementation. `ResponsiveAppBar` was deleted
+   entirely; the site has no fixed header.**
+
+   *The original decision was to keep the AppBar for identity, social links, Resume and "Contact
+   Now". In practice that duplicated the one-pager's own content: the AppBar avatar restated the
+   Masthead's hero portrait, and its menu items restated the section nav. On a single scrolling
+   page both are redundant. The AppBar was removed and its responsibilities redistributed.*
+
+   Where each responsibility now lives:
+
+   | was in `ResponsiveAppBar` | now |
+   |---|---|
+   | Hero portrait / avatar | Masthead avatar (the only one) |
+   | Section menu items | `SectionNav` (the only one) |
+   | "Contact Now" CTA | Masthead pill → `ContactDialogContext` |
+   | Resume button | Masthead "↓ Resume" pill |
+   | GitHub / LinkedIn links | `Copyright.tsx` in the footer |
+
+   Consequences that follow from this and are already reflected in the code:
+   - **`SectionNav` sticks at `top: 0`**, not `top: appBarHeight` — there is nothing above it.
+   - **`Section`'s `scrollMarginTop` is `navHeight` alone.** Anchors clear one bar, not two.
+   - **`AppBarHeightContext` and the whole `ResizeObserver` height-measurement chain are gone.**
+     This voids Phase 3 Tasks 3.1, 3.2 and 3.6, and Phase 7 Task 7.3's `handleLogoClick` change —
+     all of them target deleted code. Phase 3's framing of the stale-height `ResizeObserver` fix as
+     "a prerequisite bug fix" no longer applies: the buggy component does not exist.
+   - **Moving the social links to the footer resolves the "mobile has no GitHub/LinkedIn links"
+     content gap** listed below — they now render at every breakpoint.
+
+   The phase documents have **not** yet been rewritten for this; they still describe the AppBar
+   architecture in ~46 places. Treat this decision as authoritative where they disagree.
 3. **Theming** — force dark mode:
+   - ⚠️ **Phase 1 Tasks 1.1 and 1.2 contradict each other; 1.2 wins.** Task 1.1 says "do not set
+     `primary.main`" while Task 1.2 requires overriding `primary.contrastText`. That combination is
+     impossible: `SimplePaletteColorOptions` declares **`main: string` as required**, so a partial
+     `primary: { contrastText }` does not typecheck. `main` must be supplied. `theme.tsx` sets it
+     from `blue[200]` — MUI's own dark default — so the value stays visibly tied to the framework
+     default rather than forking the accent into a second literal.
    - ⚠️ `colorSchemes: { dark: true }` is **what `theme.tsx` already has, and it does not force dark.**
      Verified against the installed MUI 9.3.1: that config yields `colorSchemes: ['light','dark']`,
      `defaultColorScheme: 'light'`, `colorSchemeSelector: 'media'` — light mode is live and follows
@@ -117,10 +150,23 @@ This plan replaces the 5-route tabbed SPA with a unified, high-polish scrolling 
 7. **Skill chip colors**: take the prototype's `JetBrains Suite #5b5b5b` and `Miro #c9a800` over the
    repo's `#000000` / `#FFD02F`. The other 31 chips match. Pure black is near-invisible on `#1e1e1e`
    and white-on-`#FFD02F` fails contrast, so the drift reads as a deliberate accessibility fix.
-8. **The "↓ Resume" pill is blocked on a missing asset.** `/resume` and `/headshot` both **404 in
-   production**: `base.yaml` points at `./data/…`, `data/` is gitignored, and the Dockerfile never
-   copies it into the runtime image. Ship the asset before wiring a prominent hero CTA to it. See
-   Phase 4.
+8. **The "↓ Resume" pill links straight to `/resume`.** ⚠️ **RETRACTED — an earlier version of this
+   decision claimed `/resume` and `/headshot` 404 in production and told Phase 4 not to wire the
+   link. That was wrong**, and Phase 4 Task 4.2 still carries the bad warning.
+
+   The claim was inferred purely from repo contents — `base.yaml` pointing at `./data/…`, `data/`
+   being gitignored, and the Dockerfile's runtime stage not copying it. **A repo snapshot cannot
+   settle how an asset is provisioned at deploy time.** Two pieces of evidence in the repo
+   contradicted the inference and were not checked:
+
+   - `/resume` and `/headshot` are **real registered routes** — `src/startup.rs:185-186` wire them
+     to `serve_resume` / `serve_headshot`, which read `resume_file_path` / `headshot_file_path`.
+   - The previous live `ResponsiveAppBar` shipped a plain `href="/resume"` link in **both** desktop
+     and mobile for its entire life, with no guard and no tooltip.
+
+   Both work in production. The `Hero.tsx` "Resume download coming soon" tooltip that the original
+   reasoning leaned on came from a **dead, never-imported component** — it was stale, not accurate.
+   Wire the pill normally; no asset work is a prerequisite.
 9. **Footer license wording**: the design's footer line ends "Source (MIT)". The live `Copyright.tsx`
    says **CC BY-NC-SA 4.0**, consistent with `public/ai.txt`. **Deliberate deviation — keep the
    existing license wording.** Restyle only. See Phase 4.
@@ -203,11 +249,11 @@ These are pre-existing, surfaced by this work, and independent of the redesign:
 - **`routes.json` `/education` claims an MBA from St. Edward's University and Austin Coding
   Academy** — neither appears on `Education.tsx` (two Texas State degrees only). Confirm before
   carrying any of it into the collapsed description.
-- **`/resume` and `/headshot` 404 in production.** Beyond the hero CTA, this means the injected
-  `og:image` / `twitter:image` and the sitemap `<image:image>` all point at a dead URL, and
-  `ResponsiveAppBar`'s `Avatar src="/headshot"` is silently falling back to its `onError` handler.
-- **Mobile has no GitHub/LinkedIn links** (they live in an `md`-only Box). Cheap to fix here, but
-  it is a behavior change, not a port.
+- ~~**`/resume` and `/headshot` 404 in production.**~~ **NOT A GAP — retracted.** Both are served
+  by real routes (`src/startup.rs:185-186`) and work in production. See decision 8 for why this was
+  wrongly reported, and what evidence was missed.
+- ~~**Mobile has no GitHub/LinkedIn links.**~~ **RESOLVED** by decision 2 — the links moved from
+  the deleted AppBar's `md`-only Box into `Copyright.tsx`, so they now render at every breakpoint.
 
 ---
 

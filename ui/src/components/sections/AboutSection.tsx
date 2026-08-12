@@ -83,9 +83,9 @@ export default function AboutSection() {
                   }}
                 >
                   {bullet.label && (
-                    <strong style={{ color: 'rgba(255,255,255,.88)', marginRight: '0.25em' }}>
+                    <Box component="strong" sx={{ color: 'rgba(255,255,255,.88)' }}>
                       {bullet.label}:{' '}
-                    </strong>
+                    </Box>
                   )}
                   {bullet.text}
                 </ListItem>

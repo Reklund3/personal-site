@@ -56,11 +56,23 @@ async fn server_renders_identical_seo_metadata_for_all_spa_paths() {
         titles.push(actual_title);
     }
 
-    // Assert that all paths return the same title proving they serve one canonical
+    // Every path must return a byte-identical title. This is the inverted form of the
+    // pre-one-pager `assert_ne!`, which proved metadata was injected *per route*; under a
+    // single canonical the equivalent proof is that no path differs from any other.
+    // Compare all of them, not just the first two — a regression on `/portfolio` alone
+    // would otherwise pass.
     assert_eq!(
-        titles[0], titles[1],
-        "All SPA paths must return identical titles"
+        titles.len(),
+        test_cases.len(),
+        "should have collected one title per path"
     );
+    for (path, title) in test_cases.iter().zip(titles.iter()) {
+        assert_eq!(
+            title, &titles[0],
+            "GET {path} returned a different title than {}; all SPA paths must be identical",
+            test_cases[0]
+        );
+    }
 }
 
 /// The <h1> must be in the HTML the server sends, not only in the client bundle.
