@@ -111,8 +111,10 @@ export default function Masthead() {
             Contact Now
           </Button>
 
-          {/* Resume button */}
+          {/* Resume button — live link to the /resume download */}
           <Button
+            component="a"
+            href="/resume"
             variant="outlined"
             sx={{
               borderRadius: '20px',
@@ -125,7 +127,6 @@ export default function Masthead() {
                 border: '1px solid rgba(255,255,255,.5)',
               },
             }}
-            title="Resume download coming soon"
           >
             ↓ Resume
           </Button>
