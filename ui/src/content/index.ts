@@ -232,7 +232,11 @@ export const CONTENT: SiteContent = {
       title: 'Associate DevOps Engineer',
       company: 'Cloud Imperium Games',
       dates: '03/2019 – 03/2020',
-      bullets: ['Coming soon.'],
+      // Intentionally empty: the resume lists this role as a header with no bullets,
+      // so the site matches it rather than shipping a "Coming soon." placeholder.
+      // The entry still earns its place — it is the start of the progression through
+      // four roles at CIG. Fill it in if there is something worth saying.
+      bullets: [],
     },
   ],
   education: [

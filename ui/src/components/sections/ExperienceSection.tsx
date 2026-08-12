@@ -97,6 +97,7 @@ export default function ExperienceSection() {
                     (markup line 466). listStyle:none keeps the list semantics
                     without a glyph a screen reader would announce.
                   */}
+                  {entry.bullets.length > 0 && (
                   <Box component="ul" sx={{ listStyle: 'none', p: 0, m: 0 }}>
                     {entry.bullets.map((bullet) => (
                       <Typography
@@ -113,6 +114,7 @@ export default function ExperienceSection() {
                       </Typography>
                     ))}
                   </Box>
+                  )}
                 </Box>
               </Box>
             );
