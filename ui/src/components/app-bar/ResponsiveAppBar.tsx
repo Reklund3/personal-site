@@ -58,10 +58,13 @@ function ResponsiveAppBarComponent() {
     }, []);
 
     const handleLogoClick = useCallback((event: React.MouseEvent<HTMLElement>) => {
-        // Prevent default browser navigation
         event.preventDefault();
-        // Only navigate if we're not already on the home page
-        if (location.pathname !== "/") {
+        if (location.pathname === "/") {
+            // On home page, scroll to top
+            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            window.scrollTo({ top: 0, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+        } else {
+            // On other pages, navigate to home
             navigate("/");
         }
     }, [location.pathname, navigate]);

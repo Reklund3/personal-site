@@ -4,13 +4,7 @@ use crate::helpers::spawn_app;
 async fn server_renders_identical_seo_metadata_for_all_spa_paths() {
     let test_app = spawn_app().await;
 
-    let test_cases = [
-        "/",
-        "/skills",
-        "/experience",
-        "/education",
-        "/portfolio",
-    ];
+    let test_cases = ["/", "/skills", "/experience", "/education", "/portfolio"];
 
     let expected_title = "<title>Software Engineer | Robert Eklund</title>";
     let expected_desc_substring = r#"<meta name="description" content="Software engineer with expertise in Rust, functional programming, TypeScript, and distributed systems."#;
@@ -46,10 +40,8 @@ async fn server_renders_identical_seo_metadata_for_all_spa_paths() {
             "GET {path} should contain description substring '{expected_desc_substring}'"
         );
 
-        let expected_canonical = format!(
-            r#"<link rel="canonical" href="{}/" />"#,
-            test_app.base_url
-        );
+        let expected_canonical =
+            format!(r#"<link rel="canonical" href="{}/" />"#, test_app.base_url);
         assert!(
             body.contains(&expected_canonical),
             "GET {path} should contain canonical link '{expected_canonical}'"
@@ -75,13 +67,7 @@ async fn server_renders_identical_seo_metadata_for_all_spa_paths() {
 async fn server_renders_an_h1_for_every_spa_route() {
     let test_app = spawn_app().await;
 
-    let test_cases = [
-        "/",
-        "/skills",
-        "/experience",
-        "/education",
-        "/portfolio",
-    ];
+    let test_cases = ["/", "/skills", "/experience", "/education", "/portfolio"];
 
     let expected_h1 = "<h1>Robert Eklund</h1>";
 
