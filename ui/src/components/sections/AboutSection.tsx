@@ -54,19 +54,26 @@ export default function AboutSection() {
 
           {/* Bullets */}
           {section.bullets.length > 0 && (
-            <List
-              disablePadding
-              sx={{
-                mb: '8px',
-              }}
-            >
+            <List disablePadding sx={{ mb: 0 }}>
               {section.bullets.map((bullet, idx) => (
                 <ListItem
                   key={idx}
+                  // BOTH are required. `disableGutters` only drops the horizontal
+                  // 16px; without `disablePadding` each item keeps ListItem's default
+                  // paddingTop/Bottom of 8px, which is 16px of extra space per bullet
+                  // against the design's 5px margin.
                   disableGutters
+                  disablePadding
                   sx={{
+                    // ListItem defaults to `display: flex; align-items: center`, which
+                    // makes the <strong> label and the text separate flex items — the
+                    // text then cannot wrap underneath the label, and the two are
+                    // vertically centred against each other. The design is ordinary
+                    // inline text flow with a hanging dot, so force it back to block.
+                    display: 'block',
                     fontSize: 12.5,
                     lineHeight: 1.65,
+                    mb: '5px',
                     pl: '14px',
                     position: 'relative',
                     color: 'rgba(255,255,255,.72)',
