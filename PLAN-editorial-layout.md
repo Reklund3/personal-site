@@ -57,7 +57,7 @@ scroll-spy strip. `menuItemsTitles` has exactly one consumer, so removing it is 
 The design specifies only dark values. **Recommend forcing dark** — anything else means inventing a
 light palette the handoff doesn't provide.
 
-Mechanism (verified against installed MUI 6.5.0): `colorSchemes: { dark: true }` alone yields
+Mechanism (verified against installed MUI 9.3.1, identical on 6.5.0): `colorSchemes: { dark: true }` alone yields
 `colorSchemes: ['light','dark']`, `defaultColorScheme: 'light'`, `colorSchemeSelector: 'media'`.
 Adding **`defaultColorScheme: 'dark'`** collapses it to a single dark scheme. `colorSchemes: { light:
 false, dark: true }` **throws**; `palette: { mode: 'dark' }` also works.
@@ -105,7 +105,8 @@ consistent with `public/ai.txt`. **Deliberate deviation: keep the existing licen
 
 ## Verified facts this plan rests on
 
-**Theme** (MUI **6.5.0** installed; `package.json` declares `^6.3.1`)
+**Theme** (MUI **9.3.1** installed, upgraded from 6.5.0 on the implementation branch; `@mui/lab`
+pinned at `9.0.0-beta.8`. All theme values below were re-verified against 9.3.1 and are unchanged.)
 - Dark `primary.main` = `blue[200]` = **`#90caf9`** — exactly the design accent. No override needed.
 - Dark `background.default` **and** `.paper` are both `#121212` (`createPalette.js:62-64`).
 - **`#1e1e1e` is already what ships.** It's not a token — it's the *rendered* result of MUI's dark

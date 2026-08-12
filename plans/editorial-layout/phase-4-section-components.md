@@ -20,7 +20,7 @@ Where the handoff README's prose and the markup disagree, **the markup wins**.
   Phase 5 use a plain `scrollIntoView`.
 - Inner `<Container maxWidth="lg">` with the design inset — `px: { xs: '26px', md: '60px' }`,
   `py: '36px'` (Education overrides to `30px`).
-- **Eyebrow:** `<Typography variant="eyebrow" color="primary.main" mb={eyebrowGap}>` — the custom
+- **Eyebrow:** `<Typography variant="eyebrow" color="primary.main" sx={{ mb: eyebrowGap }}>` — the custom
   variant registered in Phase 1 Task 1.5, whose `variantMapping` already renders it as `<h2>`. ⚠️ Do
   **not** use `variant="overline"` (12px / weight 400 / `0.08333em` — none of which match) and do not
   re-declare the type styles per section with `sx`.
@@ -53,8 +53,9 @@ Where the handoff README's prose and the markup disagree, **the markup wins**.
 - Tagline: 13.5px / line-height 1.7 / `rgba(255,255,255,.75)`, `maxWidth: 420px`, centered,
   `mb: '22px'` — "Building scalable systems with functional programming principles. Passionate about
   type safety, DevOps automation, and mentoring engineers."
-- Button row: `<Stack direction="row" spacing="10px" useFlexGap flexWrap="wrap" justifyContent="center">`
-  — `useFlexGap` is required for `spacing` to survive wrapping. Both pills are
+- Button row: `<Stack direction="row" spacing="10px" useFlexGap sx={{ flexWrap: 'wrap', justifyContent: 'center' }}>`
+  — `useFlexGap` is required for `spacing` to survive wrapping. ⚠️ `flexWrap` and `justifyContent`
+  **must** be in `sx` on MUI 9 (see README Phase 0.3a); as bare props they no longer compile. Both pills are
   `borderRadius: 20px`, `padding: '10px 22px'`, `fontSize: 12.5px` — apply via `sx`, **not** a global
   `MuiButton` override (see Phase 1).
   - Contained "Contact Now" — `bgcolor: primary.main`, text `primary.contrastText`; calls
@@ -82,7 +83,10 @@ Where the handoff README's prose and the markup disagree, **the markup wins**.
   each item 12.5px / 1.65, `pl: '14px'`, `position: relative`, with a `::before` 4px dot
   (`primary.main`, `position: absolute; left: 0; top: 7px; borderRadius: 50%`). Optional bold inline
   `label` renders as `<strong>{label}: </strong>` in `rgba(255,255,255,.88)`. Do not use
-  `ListItemIcon` for the dot — it forces a 56px min-width the design has no room for.
+  `ListItemIcon` for the dot — it carries a min-width the design has no room for. (On MUI 9 that
+  default dropped from 56px to `theme.spacing(4.5)` = **36px**, verified in
+  `ListItemIcon/ListItemIcon.js:42`, so the objection is weaker than it was on v6 — but a 4px dot
+  still does not need a 36px box. Keep the `::before`.)
 
 ### Task 4.4 — `SkillsSection.tsx`
 - Eyebrow `SKILLS`, gap 18, band `alt`.
@@ -90,7 +94,7 @@ Where the handoff README's prose and the markup disagree, **the markup wins**.
 - Category card: `<Card>` (elevation 1 → `#1e1e1e` for free), `borderRadius: 10` from the theme,
   `padding: 16px`; label 12.5px bold `rgba(255,255,255,.85)`, `mb: '10px'`.
 - Chips: `<Chip size="small" label={item.name} />` inside a `<Stack direction="row" useFlexGap
-  flexWrap="wrap" spacing="6px">`; per-chip `sx={{ bgcolor: item.color, color: '#fff' }}`, 11px.
+  spacing="6px" sx={{ flexWrap: 'wrap' }}>`; per-chip `sx={{ bgcolor: item.color, color: '#fff' }}`, 11px.
   Radius 12 and `fontWeight: 500` come from the Phase 1 `MuiChip` override. Colors come from the
   content model (Phase 2).
 - Soft-skill pills below, `mt: '16px'`, `gap: 8px`: `<Chip variant="outlined" size="small" />` —
@@ -103,24 +107,49 @@ Where the handoff README's prose and the markup disagree, **the markup wins**.
 
 ### Task 4.5 — `ExperienceSection.tsx`
 
-> **Resolved: hand-roll it. Do NOT add `@mui/lab`.** MUI's `Timeline position="alternate"` does
-> exactly this zigzag, but it lives in `@mui/lab`, which has **no stable release for the v6 line** —
-> the only version compatible with the installed `@mui/material` 6.5.0 is `6.0.1-beta.36`, which
-> also pulls `@mui/base@5.0.0-beta.70`. It would buy one section (Task 4.7 keeps CSS `columns`
-> regardless), and even there `TimelineItem`'s 50/50 split and missing mobile collapse both need
-> manual overrides. Build the spec below. See README decision 10.
+> **Resolved: use `@mui/lab`'s `Timeline`.** It is installed and pinned at `9.0.0-beta.8`.
+> `position="alternate"` is exactly this zigzag and removes the index-parity math. See README
+> decision 10 for why this flipped twice and what the measured cost was.
 
 - Eyebrow `EXPERIENCE`, gap 22, **centered**, band `default`.
-- Center rule: `position: absolute; left: 50%; top: 0; bottom: 0; width: 2px;
-  bgcolor: rgba(255,255,255,.15); transform: translateX(-1px)`, `display: { xs: 'none', md: 'block' }`.
-- Jobs alternate: even index right-aligned ending at center, odd index left-aligned starting at
-  center; each card `width: '46%'`, `mb: '26px'`. Mobile: all left-aligned, full width, no zigzag.
-- Entry: 14px bold title `rgba(255,255,255,.9)`; `{company} · {dates}` at 11.5px
-  `rgba(255,255,255,.55)` `mb: '8px'`; bullets 12px / 1.6 / `rgba(255,255,255,.72)` `mb: '4px'`.
-- **Zigzag is presentational only** — DOM order stays chronological so reading and screen-reader
-  order match the mobile stack. Drive the alternation from the index, never by reordering the array.
+- Import from `@mui/lab`: `Timeline`, `TimelineItem`, `TimelineSeparator`, `TimelineConnector`,
+  `TimelineContent`.
+- **Omit `TimelineDot` entirely.** A `TimelineSeparator` holding only a `TimelineConnector` renders
+  the design's uninterrupted centre rule; a dot would break it at every entry. Style the connector
+  `width: '2px'`, `bgcolor: 'rgba(255,255,255,.15)'`.
+- **The 46% split needs an override.** `TimelineItem` is `display: flex` and, when no
+  `TimelineOppositeContent` is present, injects a `::before` pseudo with `flex: 1` as the spacer —
+  so the default is 50/50 (verified, `TimelineItem/TimelineItem.js:49-53`). Override both sides on
+  the `Timeline`'s `sx`:
+  ```tsx
+  <Timeline position="alternate" sx={{
+    p: 0, m: 0,
+    '& .MuiTimelineItem-root::before': { flex: '0 0 46%', p: 0 },
+    '& .MuiTimelineContent-root': { flex: '0 0 46%', py: 0 },
+  }}>
+  ```
+- **Mobile collapse is not built in.** `position` is a plain prop, not a responsive value, and
+  `alternate` works by flipping `flex-direction: row-reverse` on `&:nth-of-type(even)`
+  (`TimelineItem.js:57-66`). Below `md`, override in `sx` rather than swapping the prop from JS —
+  a `useMediaQuery`-driven prop change re-renders on resize and can disagree with the SSR shell:
+  ```tsx
+  [theme.breakpoints.down('md')]: {
+    '& .MuiTimelineItem-root': { flexDirection: 'row' },
+    '& .MuiTimelineItem-root::before': { display: 'none' },
+    '& .MuiTimelineContent-root': { flex: 1, textAlign: 'left' },
+  }
+  ```
+  ⚠️ The `nth-of-type(even)` rule sets `textAlign: 'right'` on content; the mobile override must
+  beat it, so keep it after and target the same specificity.
+- Entry, inside `TimelineContent`: 14px bold title `rgba(255,255,255,.9)` as
+  `<Typography component="h3">`; `{company} · {dates}` at 11.5px `rgba(255,255,255,.55)`
+  `mb: '8px'`; bullets 12px / 1.6 / `rgba(255,255,255,.72)` `mb: '4px'`.
+- **Zigzag stays presentational.** `Timeline` renders `<ul>`/`<li>`, so DOM order is already
+  chronological and matches the mobile stack — never reorder the array to achieve the visual.
 - ⚠️ The 4th entry (Associate DevOps Engineer, 03/2019–03/2020) has a single `'Coming soon.'` bullet.
   It ships visibly on a continuous timeline — resolve the content before launch.
+- ⚠️ `TimelineItem` sets `minHeight: 70` (`TimelineItem.js:48`). If an entry renders shorter than
+  that the spacing will not match the design's `mb: '26px'` rhythm — override if it bites.
 
 ### Task 4.6 — `EducationSection.tsx`
 - Eyebrow `EDUCATION`, gap 14, band `alt`, `textAlign: 'center'`, and section `py: '30px'` (not 36).
@@ -133,15 +162,22 @@ Where the handoff README's prose and the markup disagree, **the markup wins**.
 
 ### Task 4.7 — `PortfolioSection.tsx`
 - Eyebrow `PORTFOLIO`, gap 18, band `default`.
-- CSS multi-column masonry: `columns: { xs: 1, md: 2 }`, `columnGap: '14px'`; every card
-  `breakInside: 'avoid'`, `mb: '14px'`.
-
-  MUI's `<Masonry>` is the component equivalent, but it is **`@mui/lab`-only** (verified absent from
-  `@mui/material` 6.5.0, despite its docs page linking `@mui/material` for bundle size). It also
-  measures in JS and reorders items into the shortest column, where CSS `columns` fills
-  top-to-bottom per column — a visible ordering difference for only four cards. **Keep CSS
-  `columns`.** Task 4.5 resolved against adding `@mui/lab` (no stable v6 release), so `Masonry` is
-  not available here and would not have been the right call anyway.
+- **Use `@mui/lab`'s `<Masonry>`** — adopted alongside `Timeline` (README decision 10):
+  ```tsx
+  <Masonry columns={{ xs: 1, md: 2 }} spacing={1.75} sequential>
+  ```
+  `spacing={1.75}` is 14px on the default 8px spacing unit, matching the design's `columnGap`.
+  `Masonry` supplies the gaps, so drop the per-card `mb: '14px'` and `breakInside: 'avoid'` that a
+  CSS-`columns` implementation would need.
+- ⚠️ **`sequential` is required, not optional.** By default `Masonry` measures in JS and drops each
+  item into the *shortest* column, which reorders the cards relative to the content array.
+  `sequential` fills left-to-right in array order instead (`Masonry.js:161, 226`). Without it the
+  open-source entry can float above the personal projects, contradicting the section's intended
+  reading order.
+- ⚠️ `Masonry` measures on the client, so the first paint before measurement can differ from the
+  settled layout. The props that control the pre-measurement guess are `defaultColumns`,
+  `defaultSpacing` and `defaultHeight`; set `defaultColumns={2} defaultSpacing={1.75}` so the
+  server-rendered shell and the hydrated layout agree.
 - Card: `<Card>` (elevation 1) wrapping `<CardContent>`, with the link in `<CardActions>` — use the
   MUI subcomponents rather than padding a bare `Card`, then zero out `CardContent`'s default
   `padding-bottom: 24px` and `CardActions`' 8px gutters to hit the design's flat 16px.
@@ -149,16 +185,17 @@ Where the handoff README's prose and the markup disagree, **the markup wins**.
   optional `subheader` 11px `rgba(255,255,255,.5)` `mb: '8px'`; paragraphs 12px / 1.6 /
   `rgba(255,255,255,.7)`; link via `<Link color="primary" underline="none" target="_blank"
   rel="noopener">` labelled `linkLabel ?? 'View on GitHub'` followed by `→`.
-  ⚠️ Do **not** use `<CardHeader>` for the title. Verified in `@mui/material` 6.5.0
-  (`CardHeader/CardHeader.js:113-114`), its title slot defaults to `variant: 'h5'`,
+  ⚠️ Do **not** use `<CardHeader>` for the title. Verified in `@mui/material` **9.3.1**
+  (`CardHeader/CardHeader.js:112-113`), its title slot still defaults to `variant: 'h5'`,
   **`component: 'span'`** — visual size only, no heading element. That is why today's card titles in
   `Experience.tsx` and `Portfolio.tsx` contribute nothing to the heading outline, and `d56b1c5` did
   **not** address it (it added page-level `<h1>`s and left `CardHeader` untouched). Render the title
   as `<Typography variant="h3">` explicitly instead.
 
-  If you do keep a `CardHeader` anywhere, note that `titleTypographyProps` is **deprecated in v6**
-  and slated for removal in v7 (`CardHeader.js:263`) — the current form is
-  `slotProps={{ title: { component: 'h3' } }}`.
+  If you do keep a `CardHeader` anywhere: `titleTypographyProps` was deprecated in v6 and is now
+  **removed outright in v9** — verified, zero occurrences in `CardHeader.js`. The only form that
+  works is `slotProps={{ title: { component: 'h3' } }}`. (Codemod:
+  `npx @mui/codemod@latest deprecations/card-header-props <path>`.)
 - 3 personal projects + 1 open-source entry (Akka ActorTestkit — the one with both a `subheader` and
   a custom `linkLabel`).
 
@@ -191,7 +228,10 @@ The design's 8th band, missing from earlier drafts of this plan.
    subsection and card titles are `<h3>` — gapless, no skipped level.
 3. Bands alternate `#121212 / #171717 / #121212 / #171717 / #121212` with the footer on `#171717`.
 4. Cards compute to `rgb(30, 30, 30)` from the default Paper overlay — not `#292929`.
-5. Responsive sweep at 390 / 768 / 1200px: timeline rule hidden below `md`, portfolio single column,
-   skills grid single column, inset drops 60px → 26px.
+5. Responsive sweep at 390 / 768 / 1200px: timeline collapses to a single left-aligned column below
+   `md` (no zigzag, no `::before` spacer, content left-aligned — the `nth-of-type(even)` override),
+   portfolio single column, skills grid single column, inset drops 60px → 26px.
+7. Portfolio card order matches the content array top-to-bottom (`sequential`), and does not
+   visibly re-shuffle between first paint and settled layout.
 6. Deep-link an anchor and confirm the heading clears **both** the AppBar and the sticky nav
    (`scrollMarginTop` correct).

@@ -26,7 +26,29 @@ This plan replaces the 5-route tabbed SPA with a unified, high-polish scrolling 
    `configuration/`, `spec.yaml`, `scripts/init_db.sh` and CI only; nothing in `ui/` or `src/routes/`,
    so every line reference in these phase docs still holds. Do not sweep in the untracked
    `traefik.yml`.
-3. **Know the build order.** `src/routes/home/mod.rs` embeds `ui/dist/index.html` via `include_str!`
+3. **Material UI is on v9.3.1 as of the branch's second commit.** The upgrade from 6.5.0 landed as
+   its own commit before Phase 1, so every phase doc below is written against **9.3.1**. Two
+   consequences that affect almost every file you will write:
+
+   **(a) Deprecated system props were removed from `Box`, `Stack`, `Typography`, `Link`, `Grid`
+   and `DialogContentText`.** Layout, spacing, display and flex shorthands must go in `sx`.
+   Empirically verified against 9.3.1 — this is the exact boundary:
+
+   | still legal | removed → use `sx` |
+   |---|---|
+   | `<Typography color="primary.main">` | `<Typography mb={2}>` |
+   | `<Link color="primary" underline="none">` | `<Stack flexWrap="wrap">` |
+   | `<Typography variant="h4" component="h1">` | `<Box display="flex">` |
+   | `<Box component="section" id="x">` | `<Typography fontWeight={600}>` |
+   | `<Stack direction spacing useFlexGap>` | any `mt`/`mb`/`px`/`py`/`justifyContent`/… |
+
+   Note `color` **survives** — it is a real component prop, not just a system prop. It is only
+   spacing/display/flex shorthands that moved. If you inherit v6-style code, the official codemod
+   is `npx @mui/codemod@latest v9.0.0/system-props <path>`.
+
+   **(b) `@mui/lab` is still not installed and still not an option** — see decision 10.
+
+4. **Know the build order.** `src/routes/home/mod.rs` embeds `ui/dist/index.html` via `include_str!`
    at **compile time**, while `Files` serves hashed assets from disk at runtime. Any phase that
    touches `ui/` must run `cd ui && npm run build` **before** `cargo test` / `cargo run`, or the
    Rust side tests a stale shell. `cargo test` also needs a running Postgres — the tests provision
@@ -49,7 +71,7 @@ This plan replaces the 5-route tabbed SPA with a unified, high-polish scrolling 
    - Dynamic height measurement uses a `ResizeObserver` piped through React Context so `SectionNav` sticky offset (`top: appBarHeight`) updates live across window resizes and mobile/desktop breakpoint shifts.
 3. **Theming** — force dark mode:
    - ⚠️ `colorSchemes: { dark: true }` is **what `theme.tsx` already has, and it does not force dark.**
-     Verified against the installed MUI 6.5.0: that config yields `colorSchemes: ['light','dark']`,
+     Verified against the installed MUI 9.3.1: that config yields `colorSchemes: ['light','dark']`,
      `defaultColorScheme: 'light'`, `colorSchemeSelector: 'media'` — light mode is live and follows
      system preference. Adding **`defaultColorScheme: 'dark'`** is what collapses it to a single
      dark scheme. See Phase 1.
@@ -79,37 +101,48 @@ This plan replaces the 5-route tabbed SPA with a unified, high-polish scrolling 
    existing license wording.** Restyle only. See Phase 4.
 10. **Build from Material UI components, not hand-rolled markup.** The prototype is raw `<div>`s with
     inline styles; every one of its constructs has a Material UI equivalent, and the port should use
-    it. Verified against the installed **6.5.0** via the MUI MCP docs:
+    it. Verified against the installed **9.3.1** via the MUI MCP docs and the package tree:
 
     | Design construct | Component | Availability |
     |---|---|---|
     | Sticky section nav w/ 2px active bar | `Tabs` / `Tab` (`role="navigation"`) | `@mui/material` ✅ |
     | Section eyebrow | custom `eyebrow` typography variant → `<h2>` | theme feature ✅ |
     | Skill chips, soft-skill pills | `Chip`, `Chip variant="outlined"` | `@mui/material` ✅ |
-    | Button / chip rows that wrap | `Stack … useFlexGap flexWrap` | `@mui/material` ✅ |
+    | Button / chip rows that wrap | `Stack … useFlexGap sx={{flexWrap}}` | `@mui/material` ✅ |
     | About bullet lists | `List` / `ListItem` | `@mui/material` ✅ |
     | Project cards | `Card` / `CardContent` / `CardActions` / `Link` | `@mui/material` ✅ |
     | Nav scrolled background | `useScrollTrigger` | `@mui/material` ✅ |
-    | Experience zigzag timeline | `Timeline position="alternate"` | **`@mui/lab` — not installed** ⚠️ |
-    | Portfolio masonry | `Masonry` | **`@mui/lab` — not installed** ⚠️ |
+    | Experience zigzag timeline | `Timeline position="alternate"` | `@mui/lab` ✅ **installed** |
+    | Portfolio masonry | `Masonry sequential` | `@mui/lab` ✅ **installed** |
 
-    **Decision: do NOT add `@mui/lab`. Keep the hand-rolled specs.** *(Resolved — this reverses an
-    earlier "adopt" recommendation in this doc, on evidence found while checking the registry.)*
+    **Decision: adopt `@mui/lab`, pinned at `9.0.0-beta.8`. Use `Timeline` for Experience and
+    `Masonry` for Portfolio.**
 
-    - There is **no stable `@mui/lab` for the v6 line.** The only release compatible with the
-      installed `@mui/material` 6.5.0 is `6.0.1-beta.36` (npm dist-tag `latest-v6`); it also pulls
-      `@mui/base@5.0.0-beta.70` transitively. `@mui/lab@latest` is 9.0.0-beta.8, for MUI v9.
-    - The "one dependency covers two sections" argument does not hold. Task 4.7 had already
-      concluded **keep CSS `columns`** over `Masonry` regardless, because `Masonry` reflows items
-      into the shortest column while CSS `columns` fills top-to-bottom — a visible ordering change
-      for four cards. So `@mui/lab` would buy exactly one section.
-    - And on that one section most of the benefit is overridden anyway: `TimelineItem` splits 50/50
-      against the design's 46%, and there is no built-in mobile collapse, so `position="right"`
-      below `md` is a manual override either way.
+    > *Decision history — this flipped twice, so here is what actually moved.* The first pass
+    > recommended adopting. A registry check then found the v6-compatible release was beta-only and
+    > pulled `@mui/base@5.0.0-beta.70`, which flipped it to decline. Upgrading to MUI 9.3.1 (Phase
+    > 0.3) then invalidated that objection: measured, the v9-line lab adds **1 package with zero
+    > transitive deps**, and `Timeline` in real use costs **+4.8 kB raw / +1.4 kB gzip**. What
+    > remains true is only that lab is a permanently-prerelease channel — accepted deliberately.
 
-    The hand-rolled zigzag in Task 4.5 and the CSS `columns` masonry in Task 4.7 are complete and
-    correct — build those. Revisit only if this project moves to MUI v7+, where `@mui/lab` has a
-    stable release.
+    Facts worth keeping, all verified against the installed tree:
+
+    - **`@mui/lab` has never shipped a stable release on any line** — `5.0.0-alpha.177`,
+      `6.0.1-beta.36`, `7.0.1-beta.25`, `9.0.0-beta.8`. It is a permanent incubator, so "wait for
+      stable" is not a strategy and never will be. **Pin the exact version** — a `^9.0.0-beta.8`
+      caret range resolves forward across betas (`9.0.0-beta.20`, and any `9.x` stable), which is
+      how a beta dependency breaks a build unattended. `package.json` carries `"9.0.0-beta.8"`.
+    - **Upgrading Material UI does not make these available.** `Timeline` and `Masonry` are
+      *documented* under the Material UI nav on mui.com — including for 9.3.1 — but they are not in
+      the `@mui/material` package. Verified by `find` over clean installs of `9.3.1` and `7.3.11`:
+      zero files matching `*timeline*` or `*masonry*`. The Timeline docs page agrees, linking
+      `@mui/lab@latest` for bundle size. (The Masonry page links `@mui/material@latest` — that link
+      is wrong.) `@mui/lab` is the only route, at any version.
+    - `@mui/lab@9.0.0-beta.8` peers on `@mui/material: ^9.3.1`, matching what is installed exactly.
+
+    The two overrides the design still needs are specified in Phase 4 Tasks 4.5 and 4.7 — the
+    46% column split, the mobile collapse, and `sequential` ordering for Masonry. They are real
+    work; adopting the components does not make them go away.
 
     Note `@mui/styled-engine-sc` and `styled-components` are installed but **unused** — MUI runs on
     its default Emotion engine, since switching would need a `@mui/styled-engine` alias in

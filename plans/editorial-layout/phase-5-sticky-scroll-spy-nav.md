@@ -44,6 +44,15 @@ and `Tabs` also brings arrow-key navigation and focus management for free.
 - ⚠️ **`value` must match a `Tab`'s `value` or MUI logs a console error.** If the scroll-spy has no
   match yet, pass `value={false}` — the documented "nothing selected" sentinel — rather than `null`
   or `''`.
+**MUI 9 notes for this component** (the phase is built entirely on `Tabs`, and v9 touched it):
+- `TabIndicatorProps` is **removed** — if you style the indicator via props rather than a theme
+  override or `sx`, the form is now `slotProps={{ indicator: … }}`. Same for `ScrollButtonComponent`
+  → `slots.scrollButtons` and `TabScrollButtonProps` → `slotProps.scrollButtons`.
+  (Codemod: `npx @mui/codemod@latest deprecations/tabs-props <path>`.)
+- A `Tab` rendered **outside** a `Tabs` now throws rather than warning. Keep them nested.
+- Keyboard nav now moves `tabindex` along with DOM focus (one focusable `Tab` at a time). This is
+  an a11y improvement and needs no code, but it does change what a focus-order test would observe.
+
 - Styling to reach the design: `.MuiTabs-indicator` to `height: 2px`; `MuiTab` label to 12px,
   `textTransform: 'none'`, weight 600 inactive / 700 active, `padding: '8px 12px 6px'`; inactive
   color `rgba(255,255,255,.65)`.

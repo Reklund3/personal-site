@@ -11,7 +11,7 @@ Establish the theme foundation in MUI for the Editorial One-Pager design, forcin
 
 ### Task 1.1 — Actually force dark mode in `ui/src/theme.tsx`
 ⚠️ **`colorSchemes: { dark: true }` is already there and does *not* force dark.** Verified against the
-installed MUI **6.5.0**: that config produces `colorSchemes: ['light','dark']`,
+installed MUI **9.3.1**: that config produces `colorSchemes: ['light','dark']`,
 `defaultColorScheme: 'light'`, `colorSchemeSelector: 'media'`, `palette.mode: 'light'` — i.e. light
 mode is live and follows the visitor's OS setting. Since the handoff supplies dark values only, a
 visitor on a light OS gets an unspecified, unstyled-looking page today.
@@ -27,7 +27,8 @@ const theme = createTheme({
 });
 ```
 
-Verified results of the candidate configs (all run against the installed 6.5.0):
+Verified results of the candidate configs (all re-run against the installed **9.3.1**; the numbers
+are unchanged from 6.5.0, so this task survived the upgrade intact):
 
 | config | resulting schemes | `palette.mode` |
 |---|---|---|

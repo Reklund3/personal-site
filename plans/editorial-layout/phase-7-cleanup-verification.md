@@ -88,7 +88,18 @@ The prototype is raw `<div>`s with inline styles; the port must not be. Grep the
 - No `<div>` / `<span>` / `<ul>` / `<li>` / `<a>` where `Box`, `Typography`, `List`, `ListItem`, or
   `Link` applies. `<Box component="section">` is fine — that is the MUI way to pick the tag.
 - No hand-rolled chip, card, avatar, tab, or button markup — all five ship in `@mui/material`.
+- `Timeline*` and `Masonry` are expected imports from **`@mui/lab`** (adopted, pinned
+  `9.0.0-beta.8`). Confirm `package.json` still carries the **exact** version with no caret — a
+  `^` on a prerelease resolves forward across betas and is how this dependency breaks unattended.
 - No `style={{…}}` attributes; styling goes through `sx` or theme overrides.
+- **No deprecated system props** — MUI 9 removed them from `Box`, `Stack`, `Typography`, `Link`,
+  `Grid` and `DialogContentText`. `mb`/`mt`/`px`/`py`/`display`/`flexWrap`/`fontWeight`/
+  `justifyContent` and friends belong in `sx`. `color`, `component` and `variant` are still real
+  props and stay as-is. This is compiler-enforced, so `npm run build` is the real audit; grep is
+  just the fast pre-check:
+  ```bash
+  grep -rnE '<(Box|Stack|Typography|Link)[^>]*\s(mb|mt|ml|mr|px|py|p|m|display|flexWrap|fontWeight|justifyContent|alignItems)=' ui/src/
+  ```
 - Repeated type styles belong in the theme (the `eyebrow` variant), not copied into five `sx` props.
 - No imports from `styled-components` or `@mui/styled-engine-sc` — installed but unused, and MUI
   runs on Emotion here.
