@@ -39,4 +39,10 @@ databases:
     name: personal_site
     num_nodes: 1
     size: db-s-dev-database
-    version: "12"
+    # Observed on the running component ("starting PostgreSQL 16.14"), not a
+    # requested upgrade. This field is an instruction, not a description: it had
+    # read "12" since the spec was written, which is now stale — PostgreSQL 12
+    # hit EOL in November 2024 and DigitalOcean force-upgrades EOL managed
+    # databases. Applying the spec while it still said 12 would have asked for a
+    # downgrade of a component already on 16.
+    version: "16"

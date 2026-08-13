@@ -17,6 +17,10 @@ SUPERUSER_PWD="${SUPERUSER_PWD:=password}"
 APP_USER="${APP_USER:=app}"
 APP_USER_PWD="${APP_USER_PWD:=secret}"
 APP_DB_NAME="${APP_DB_NAME:=personal_site}"
+# Match production (16) and CI (rust.yml). Previously the image was bare
+# `postgres`, i.e. `:latest`, so local drifted upward on every pull — running
+# ahead of production is how SQL that prod cannot execute passes every gate.
+POSTGRES_VERSION="${POSTGRES_VERSION:=16}"
 
 # Allow to skip Docker if a dockerized Postgres database is already running
 if [[ -z "${SKIP_DOCKER}" ]]
@@ -40,7 +44,7 @@ then
       --publish "${DB_PORT}":5432 \
       --detach \
       --name "${CONTAINER_NAME}" \
-      postgres -N 1000
+      postgres:${POSTGRES_VERSION} -N 1000
       # ^ Increased maximum number of connections for testing purposes
 
   until [ \
