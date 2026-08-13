@@ -1,7 +1,7 @@
 import { Box, Button, CircularProgress, Collapse, Dialog, DialogActions, DialogContent, DialogTitle, Divider, FormControl, TextField, Typography } from "@mui/material";
 import { CheckCircle, Dangerous } from "@mui/icons-material";
-import DOMPurify from 'dompurify';
 import React from "react";
+import DOMPurify from 'dompurify';
 
 interface ContactDialogProps {
     dialogOpen: boolean;
@@ -51,23 +51,105 @@ const validateName = (name: string) => {
     return "";
 };
 
+/**
+ * Reduce a string to plain text: strip every tag, then decode the entities the
+ * sanitizer introduces so the result is comparable to — and displayable as — the
+ * original characters.
+ *
+ * The decode step is what the previous implementation was missing. `sanitize()`
+ * returns innerHTML, so it ESCAPES as well as strips: "R&D" comes back as
+ * "R&amp;D". Without decoding, that is both longer than the input (breaking any
+ * comparison against it) and wrong to render (the user would see a literal
+ * "R&amp;D"). Re-parsing through a detached textarea is safe here precisely
+ * because the sanitize call above has already removed every tag.
+ */
+const sanitizeToText = (value: string) => {
+    const stripped = DOMPurify.sanitize(value, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+    const decoder = document.createElement('textarea');
+    decoder.innerHTML = stripped;
+    return decoder.value;
+};
+
+/**
+ * The tag names present in `value`, so the error can name them the way
+ * validateName names illegal characters. Parsed in a detached document — this is
+ * never inserted anywhere, and parseFromString does not execute scripts.
+ */
+function findHtmlTags(value: string) {
+    const doc = new DOMParser().parseFromString(value, 'text/html');
+    const tags = new Set<string>();
+    doc.body.querySelectorAll('*').forEach((el) => tags.add(el.tagName.toLowerCase()));
+    return [...tags];
+}
+
 const validateEmail = (email: string) => {
     if (email.length === 0) {
         return "This field is required";
     }
-    // Add email format validation here if needed
+    // Deliberately permissive — just enough shape to catch a typo before a
+    // round-trip. The server is the authority on whether an address is valid.
+    // Reported in the same spirit as validateName: say which part is wrong.
+    const invalidChars = ['/', '(', ')', '"', '<', '>', '\\', '{', '}', ',', ';']
+        .filter((c) => email.includes(c));
+    if (invalidChars.length > 0) {
+        return `Email contains illegal characters: ${invalidChars.join(", ")}`;
+    }
+    if (!email.includes("@")) {
+        return "Email address is missing an @";
+    }
+    if (email.split("@").length > 2) {
+        return "Email address has more than one @";
+    }
+    const [local, domain] = email.split("@");
+    if (local.length === 0) {
+        return "Email address is missing the part before the @";
+    }
+    if (domain.length === 0) {
+        return "Email address is missing the domain after the @";
+    }
+    if (!domain.includes(".")) {
+        return "Email domain is missing a dot, e.g. example.com";
+    }
+    if (/\s/.test(email)) {
+        return "Email address cannot contain spaces";
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return "Please enter a valid email address, e.g. name@example.com";
+    }
     return "";
 };
 
 const validateMessage = (message: string) => {
-    const sanitizedMessage = DOMPurify.sanitize(message);
+    // DOMPurify is the authority on what would be stripped; DOMParser only supplies
+    // tag names so the user is told exactly what to remove rather than left to
+    // guess — the same contract validateName keeps for illegal characters.
+    //
+    // The two markup branches below are the original pair of checks: "nothing
+    // survives sanitizing" and "something was stripped". They are kept apart
+    // because they are different user mistakes and deserve different advice.
+    //
+    // What changed is only the comparison. Testing `sanitize(message).length !==
+    // message.length` fires on any message containing & < or >, because sanitize()
+    // returns innerHTML and escapes as well as strips — "R&D" comes back as
+    // "R&amp;D", longer than it went in. Comparing decoded text to the original
+    // tests what was actually meant.
+    const asText = sanitizeToText(message);
+
     if (message.length === 0) {
         return "This field is required";
-    } else if (sanitizedMessage.length === 0) {
-        return "Invalid input. Please remove any HTML tags."
-    } else if (sanitizedMessage.length != message.length) {
-        return "Invalid input. Please remove any HTML tags."
-    } else if (message.length > 1024) {  // Correct the character limit here
+    } else if (asText.trim().length === 0) {
+        // Nothing at all survives — the message is markup end to end, so naming
+        // individual tags is not the useful advice here.
+        return "Your message is entirely HTML and would arrive empty. Please write it as plain text.";
+    } else if (asText !== message) {
+        const tags = findHtmlTags(message);
+        if (tags.length > 0) {
+            return `Message contains HTML tags: ${tags.map((t) => `<${t}>`).join(", ")}. Please remove them.`;
+        }
+        // Stripped something DOMParser does not surface as an element — a comment,
+        // or a dangerous attribute on nothing nameable.
+        return "Invalid input. Please remove any HTML markup.";
+    } else if (message.length > 1024) {
         return `${message.length}/1024 characters (${message.length - 1024} too many)`;
     }
     return "";
@@ -174,7 +256,14 @@ const ContactDialog: React.FC<ContactDialogProps> = ({dialogOpen, onClose}: Cont
             } else {
                 try {
                     const errorData: ContactRejected = await response.json();
-                    setRequestStatus({ success: false, message: "Failed to submit contact information: " + errorData.reason });
+                    // The one server-controlled string that reaches the DOM. React
+                    // escapes text children, so this is not an XSS sink today —
+                    // but a poisoned record reaching the error path should not be
+                    // able to smuggle markup into the dialog if that ever changes.
+                    setRequestStatus({
+                        success: false,
+                        message: "Failed to submit contact information: " + sanitizeToText(String(errorData.reason ?? "")),
+                    });
                 } catch (parseError) {
                     console.error("Failed to submit contact information. Error parsing response: ", parseError);
                     setRequestStatus({ success: false, message: "Failed to submit contact information. Please try again shortly." });
