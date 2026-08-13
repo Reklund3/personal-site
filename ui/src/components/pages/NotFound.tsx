@@ -6,7 +6,12 @@ export default function NotFound() {
     return (
         <Box
             component="main"
+            // Same skip-link target as the one-pager, so the link in the layout
+            // resolves on this route too.
+            id="main-content"
+            tabIndex={-1}
             sx={{
+                outline: 'none',
                 my: 4,
                 display: 'flex',
                 flexDirection: 'column',

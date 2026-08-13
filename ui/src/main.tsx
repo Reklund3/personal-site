@@ -23,6 +23,36 @@ function AppLayoutContent() {
             flexDirection: "column",
             minHeight: "100vh", // Ensure content fills at least the full viewport height
         }}>
+            {/*
+                Skip link. Must be the first focusable element on the page, which is
+                why it lives here rather than inside a route component. Off-screen
+                until focused, then pinned to the top-left.
+
+                Sighted keyboard users otherwise tab through the whole sticky
+                section nav before reaching content; screen reader users could
+                already jump via the `main` landmark, but that does not help anyone
+                navigating by Tab alone.
+            */}
+            <Box
+                component="a"
+                href="#main-content"
+                sx={{
+                    position: 'absolute',
+                    left: '-9999px',
+                    top: 0,
+                    zIndex: (t) => t.zIndex.tooltip,
+                    p: '10px 16px',
+                    bgcolor: 'primary.main',
+                    color: 'primary.contrastText',
+                    fontSize: 13,
+                    fontWeight: 700,
+                    borderRadius: '0 0 6px 0',
+                    textDecoration: 'none',
+                    '&:focus': { left: 0 },
+                }}
+            >
+                Skip to main content
+            </Box>
             <Box sx={{ flex: 1 }}>
                 <App />
             </Box>
