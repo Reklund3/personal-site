@@ -41,6 +41,11 @@ export default function Section({
     <Box
       component="section"
       id={id}
+      // A <section> is only exposed as a `region` landmark once it has an
+      // accessible name, so without this the five main sections were invisible to
+      // landmark navigation while the footer's columns — which do set it — were
+      // not. Pointing at the eyebrow reuses the visible heading as the name.
+      aria-labelledby={`${id}-heading`}
       sx={{
         bgcolor: bgColor,
         scrollMarginTop: `${scrollMarginTop}px`,
@@ -55,9 +60,14 @@ export default function Section({
       >
         <Typography
           variant="eyebrow"
+          id={`${id}-heading`}
           // `color="primary.main"` does NOT work here: on MUI 9 Typography matches
           // `color` against variants generated from bare palette keys, so a dotted
           // path silently resolves to nothing. Set it through sx instead.
+          //
+          // The `eyebrow` variant applies text-transform: uppercase, so callers
+          // pass sentence case ("About", not "ABOUT"). Identical on screen, but
+          // some screen readers spell out all-caps strings letter by letter.
           sx={{
             color: 'primary.main',
             mb: `${eyebrowGap}px`,

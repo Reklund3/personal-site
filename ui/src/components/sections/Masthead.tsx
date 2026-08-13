@@ -120,7 +120,6 @@ export default function Masthead() {
               fontSize: 12.5,
               bgcolor: 'primary.main',
               color: 'primary.contrastText',
-              textTransform: 'none',
               '&:hover': {
                 bgcolor: 'primary.main',
                 opacity: 0.9,
@@ -139,9 +138,11 @@ export default function Masthead() {
               borderRadius: '20px',
               padding: '10px 22px',
               fontSize: 12.5,
-              border: '1px solid rgba(255,255,255,.3)',
+              // .35, not the handoff's .3: as an interactive control boundary this
+              // is held to WCAG 1.4.11's 3:1, and .3 measures 2.67:1 against the
+              // masthead gradient. .34 is the threshold; .35 leaves a margin.
+              border: '1px solid rgba(255,255,255,.35)',
               color: 'rgba(255,255,255,.75)',
-              textTransform: 'none',
               '&:hover': {
                 border: '1px solid rgba(255,255,255,.5)',
               },

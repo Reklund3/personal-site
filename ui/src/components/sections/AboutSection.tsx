@@ -8,7 +8,7 @@ import { CONTENT } from '../../content';
 
 export default function AboutSection() {
   return (
-    <Section id="about" eyebrow="ABOUT" band="default" eyebrowGap={14}>
+    <Section id="about" eyebrow="About" band="default" eyebrowGap={14}>
       {/* Intro paragraph */}
       <Typography
         sx={{

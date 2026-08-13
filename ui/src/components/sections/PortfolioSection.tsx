@@ -12,7 +12,7 @@ export default function PortfolioSection() {
   const allProjects = [...CONTENT.portfolio.personal, ...CONTENT.portfolio.openSource];
 
   return (
-    <Section id="portfolio" eyebrow="PORTFOLIO" band="default" eyebrowGap={18}>
+    <Section id="portfolio" eyebrow="Portfolio" band="default" eyebrowGap={18}>
       <Masonry
         columns={{ xs: 1, md: 2 }}
         spacing={1.75}

@@ -5,7 +5,7 @@ import { CONTENT } from '../../content';
 
 export default function EducationSection() {
   return (
-    <Section id="education" eyebrow="EDUCATION" band="alt" eyebrowGap={14} centerEyebrow={true}>
+    <Section id="education" eyebrow="Education" band="alt" eyebrowGap={14} centerEyebrow={true}>
       {/* Education lines */}
       {CONTENT.education.map((line, idx) => (
         <Typography

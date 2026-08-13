@@ -22,7 +22,7 @@ export default function ExperienceSection() {
   return (
     <Section
       id="experience"
-      eyebrow="EXPERIENCE"
+      eyebrow="Experience"
       band="default"
       eyebrowGap={22}
       centerEyebrow={true}
