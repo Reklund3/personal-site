@@ -20,8 +20,8 @@ export default function PortfolioSection() {
         defaultColumns={2}
         defaultSpacing={1.75}
       >
-        {allProjects.map((project, idx) => (
-          <Card key={idx}>
+        {allProjects.map((project) => (
+          <Card key={project.title}>
             {/*
               The handoff card is a SINGLE container with a flat 16px padding
               (markup line 484): title, paragraphs and the link are all siblings at
@@ -89,7 +89,14 @@ export default function PortfolioSection() {
                 color="primary"
                 underline="none"
                 target="_blank"
-                rel="noopener"
+                // noreferrer as well as noopener, matching the footer's external
+                // links — suppresses the Referer header to the destination.
+                rel="noopener noreferrer"
+                // Two cards fall back to the same "View on GitHub" text, so a
+                // screen reader listing links hears one name twice with no way to
+                // tell them apart. The visible text stays short; the accessible
+                // name carries the project.
+                aria-label={`${project.linkLabel ?? 'View on GitHub'}: ${project.title}`}
                 sx={{
                   fontSize: 11,
                   '&:hover': {

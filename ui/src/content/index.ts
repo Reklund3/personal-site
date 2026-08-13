@@ -330,6 +330,9 @@ export const CONTENT: SiteContent = {
           'I intend to circle back to this project and convert it to Pekko.',
         ],
         link: 'https://gitlab.com/Reklund3/posts',
+        // Required: PortfolioSection falls back to "View on GitHub", which this
+        // GitLab-hosted project is not.
+        linkLabel: 'View on GitLab',
       },
       {
         title: 'Posts-App',
