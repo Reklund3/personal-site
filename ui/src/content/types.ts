@@ -18,9 +18,8 @@ export interface AboutContent {
 }
 
 export interface SkillItem {
+  /** Also the color key — see `skillChipColor`, which derives the swatch from it. */
   name: string;
-  /** Brand color for the chip background; white text is assumed. */
-  color: string;
 }
 
 export interface SkillCategory {
@@ -30,6 +29,8 @@ export interface SkillCategory {
 
 export interface SkillsContent {
   soft: string[];
+  /** Heading for the soft-skill card, e.g. "Soft Skills". */
+  softLabel: string;
   categories: SkillCategory[];
 }
 

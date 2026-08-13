@@ -127,69 +127,91 @@ export const CONTENT: SiteContent = {
       'Communication',
       'Leadership',
     ],
+    softLabel: 'Soft Skills',
     categories: [
       {
         label: 'Programming Languages',
         items: [
-          { name: 'Scala', color: '#DC322F' },
-          { name: 'Rust', color: '#CE422B' },
-          { name: 'Java', color: '#007396' },
-          { name: 'C#', color: '#239120' },
-          { name: 'C++', color: '#00599C' },
-          { name: 'Go', color: '#00ADD8' },
+          { name: 'Scala' },
+          { name: 'Rust' },
+          { name: 'Java' },
+          { name: 'C#' },
+          { name: 'C++' },
+          { name: 'Go' },
         ],
       },
+      // The three groups below replace a "Cloud & Infrastructure" / "DevOps &
+      // CI/CD" pair that could not be cleanly divided: cut on topic, both labels
+      // described the same lifecycle, so tools that package AND deploy had a
+      // claim to either. Docker and Helm ended up listed twice as a result.
+      //
+      // Cutting on LAYER makes membership a test rather than a judgement:
+      // packages and runs containers / hosts the cluster / moves code into it.
+      // Every tool now appears exactly once.
       {
-        label: 'Cloud & Infrastructure',
+        label: 'Containers & Orchestration',
+        items: [{ name: 'Docker' }, { name: 'Kubernetes' }, { name: 'Helm' }],
+      },
+      {
+        label: 'Cloud Platforms',
+        // AWS moved here from "Other Tools", where it sat beside Miro and Jira.
+        items: [{ name: 'AWS' }, { name: 'AWS EKS' }, { name: 'GKE' }],
+      },
+      {
+        label: 'CI/CD & GitOps',
+        // "Argo" renamed to the product actually used — the About copy says
+        // ArgoCD — which also resolves it as delivery rather than infrastructure.
+        // "Helm Charts" is gone: it was never a second tool, just Helm again.
         items: [
-          { name: 'Docker', color: '#2496ED' },
-          { name: 'Kubernetes', color: '#326CE5' },
-          { name: 'Helm', color: '#0F1689' },
-          { name: 'Argo', color: '#EF7B4D' },
-          { name: 'AWS EKS', color: '#FF9900' },
-          { name: 'GKE', color: '#4285F4' },
+          { name: 'GitHub Actions' },
+          { name: 'GitLab CI' },
+          { name: 'Argo CD' },
+          // Listed separately from Argo CD rather than folded back into a generic
+          // "Argo": different products, and collapsing them is what made the old
+          // entry ambiguous between infrastructure and delivery.
+          { name: 'Argo Workflows' },
         ],
       },
       {
+        // Split out of "Frameworks & Tools", which was carrying Git/GitLab/GitHub
+        // alongside Pekko and Play — the same topic-vs-layer confusion that forced
+        // the cloud/DevOps split. Perforce had no honest home without this.
+        label: 'Version Control',
+        items: [
+          { name: 'Git' },
+          { name: 'Perforce' },
+          { name: 'GitLab' },
+          { name: 'GitHub' },
+        ],
+      },
+      {
+        // Now genuinely frameworks and libraries.
         label: 'Frameworks & Tools',
         items: [
-          { name: 'Pekko', color: '#1976d2' },
-          { name: 'Akka', color: '#1976d2' },
-          { name: 'Play', color: '#92D13D' },
-          { name: 'Okta', color: '#007DC1' },
-          { name: 'ScalaJS', color: '#DC322F' },
-          { name: 'Diode', color: '#1976d2' },
-          { name: 'Git', color: '#F05032' },
-          { name: 'GitLab', color: '#FC6D26' },
-          { name: 'GitHub', color: '#181717' },
+          { name: 'Pekko' },
+          { name: 'Akka' },
+          { name: 'Play' },
+          { name: 'Okta' },
+          { name: 'ScalaJS' },
+          { name: 'Diode' },
         ],
       },
       {
         label: 'Databases',
         items: [
-          { name: 'PostgreSQL', color: '#336791' },
-          { name: 'MySQL', color: '#4479A1' },
-          { name: 'Cassandra', color: '#1287B1' },
-          { name: 'Kafka', color: '#231F20' },
-        ],
-      },
-      {
-        label: 'DevOps & CI/CD',
-        items: [
-          { name: 'GitHub Actions', color: '#2088FF' },
-          { name: 'GitLab CI', color: '#FC6D26' },
-          { name: 'Helm Charts', color: '#0F1689' },
-          { name: 'Docker Pipelines', color: '#2496ED' },
+          { name: 'PostgreSQL' },
+          { name: 'MySQL' },
+          { name: 'Cassandra' },
+          { name: 'Kafka' },
         ],
       },
       {
         label: 'Other Tools',
         items: [
-          { name: 'JetBrains Suite', color: '#5b5b5b' },
-          { name: 'AWS', color: '#FF9900' },
-          { name: 'Miro', color: '#c9a800' },
-          { name: 'Jira', color: '#0052CC' },
-          { name: 'Atlassian', color: '#0052CC' },
+          { name: 'JetBrains Suite' },
+          { name: 'Miro' },
+          { name: 'Jira' },
+          { name: 'Atlassian' },
         ],
       },
     ],
