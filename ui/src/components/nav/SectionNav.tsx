@@ -66,25 +66,45 @@ export default function SectionNav() {
 
     if (elements.length === 0) return;
 
-    // Callback to update active section on intersection changes
-    const handleIntersection = (entries: IntersectionObserverEntry[]) => {
-      // Filter to only intersecting entries
-      const intersecting = entries.filter((entry) => entry.isIntersecting);
+    // How much of each section currently falls inside the observation band.
+    //
+    // Kept ACROSS callbacks because IntersectionObserver only reports entries
+    // whose state changed. A section still sitting in the band is absent from
+    // later callbacks, so deciding from `entries` alone discards the very
+    // section that should usually win — which is why the highlight used to lag
+    // or stick on fast scrolls.
+    const bandHeight = new Map<string, number>();
 
-      if (intersecting.length === 0) {
-        // No intersecting sections — do not change activeSection
-        return;
+    const handleIntersection = (entries: IntersectionObserverEntry[]) => {
+      for (const entry of entries) {
+        const id = (entry.target as HTMLElement).id;
+        bandHeight.set(id, entry.isIntersecting ? entry.intersectionRect.height : 0);
       }
 
-      // Tie-break: pick the one with smallest positive boundingClientRect.top (topmost)
-      const topmost = intersecting.reduce((best, entry) => {
-        const bestTop = best.target.getBoundingClientRect().top;
-        const entryTop = entry.target.getBoundingClientRect().top;
-        return entryTop < bestTop ? entry : best;
-      });
+      // Active = whichever section occupies the most of the band.
+      //
+      // The previous rule compared raw getBoundingClientRect().top and kept the
+      // smallest. That value goes negative once a section scrolls above the
+      // viewport, so a section long gone off the top (top: -800) always beat the
+      // one actually filling the band (top: 250) and the highlight stayed behind.
+      // Comparing Math.abs fixes that case but breaks its mirror, flipping to a
+      // section with only a few pixels in the band. Measuring occupancy avoids
+      // both, and needs no getBoundingClientRect() reads — intersectionRect is
+      // already computed by the observer, so there is no forced reflow.
+      let activeId: string | null = null;
+      let best = 0;
+      for (const id of sectionIds) {
+        const height = bandHeight.get(id) ?? 0;
+        // Strict >, so on a tie the earlier (higher) section keeps it.
+        if (height > best) {
+          best = height;
+          activeId = id;
+        }
+      }
 
-      const id = (topmost.target as HTMLElement).id;
-      setActiveSection(id);
+      // Everything out of the band (between sections, or at the page extremes):
+      // leave the previous highlight alone rather than clearing it.
+      if (activeId) setActiveSection(activeId);
     };
 
     // Use a top-biased rootMargin so "active" means "near the top of the viewport"
