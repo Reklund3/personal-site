@@ -93,7 +93,7 @@ async fn dequeue_task(
     let r = sqlx::query!(
         r#"
         SELECT newsletter_issue_id, subscriber_email
-        FROM issue_delivery_queue
+        FROM newsletter.issue_delivery_queue
         FOR UPDATE
         SKIP LOCKED
         LIMIT 1
@@ -120,7 +120,7 @@ async fn delete_task(
 ) -> Result<(), anyhow::Error> {
     sqlx::query!(
         r#"
-        DELETE FROM issue_delivery_queue
+        DELETE FROM newsletter.issue_delivery_queue
         WHERE
             newsletter_issue_id = $1 AND
             subscriber_email = $2
@@ -146,7 +146,7 @@ async fn get_issue(pool: &PgPool, issue_id: Uuid) -> Result<NewsletterIssue, any
         NewsletterIssue,
         r#"
         SELECT title, text_content, html_content
-        FROM newsletter_issues
+        FROM newsletter.newsletter_issues
         WHERE
             newsletter_issue_id = $1
         "#,

@@ -77,7 +77,7 @@ async fn insert_newsletter_issue(
     let newsletter_issue_id = Uuid::new_v4();
     let query = sqlx::query!(
         r#"
-        INSERT INTO newsletter_issues (
+        INSERT INTO newsletter.newsletter_issues (
             newsletter_issue_id,
             title,
             text_content,
@@ -102,12 +102,12 @@ async fn enqueue_delivery_tasks(
 ) -> Result<(), sqlx::Error> {
     let query = sqlx::query!(
         r#"
-        INSERT INTO issue_delivery_queue (
+        INSERT INTO newsletter.issue_delivery_queue (
             newsletter_issue_id,
             subscriber_email
         )
         SELECT $1, email
-        FROM subscriptions
+        FROM newsletter.subscriptions
         WHERE status = 'confirmed'
         "#,
         newsletter_issue_id,

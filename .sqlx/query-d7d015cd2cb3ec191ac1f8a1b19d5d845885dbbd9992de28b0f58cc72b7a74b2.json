@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        INSERT INTO contacts (id, email, name, message, contact_time)\n        VALUES ($1, $2, $3, $4, $5)\n        ",
+  "query": "\n            INSERT INTO audience.contacts (id, email, name, message, contact_time)\n            VALUES ($1, $2, $3, $4, $5)\n        ",
   "describe": {
     "columns": [],
     "parameters": {
@@ -14,5 +14,5 @@
     },
     "nullable": []
   },
-  "hash": "0212e3626f846021b176774abfec7aedaeb059eb4be831a5de5d6d54f2023250"
+  "hash": "d7d015cd2cb3ec191ac1f8a1b19d5d845885dbbd9992de28b0f58cc72b7a74b2"
 }

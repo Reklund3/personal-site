@@ -151,7 +151,7 @@ async fn insert_contact(form: &VerifiedContactForm, pool: &PgPool) -> Result<Uui
     let contact_id = Uuid::new_v5(&Uuid::NAMESPACE_DNS, form.email.as_ref().as_bytes());
     sqlx::query!(
         r#"
-            INSERT INTO contacts (id, email, name, message, contact_time)
+            INSERT INTO audience.contacts (id, email, name, message, contact_time)
             VALUES ($1, $2, $3, $4, $5)
         "#,
         contact_id,

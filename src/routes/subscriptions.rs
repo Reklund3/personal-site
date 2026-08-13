@@ -142,7 +142,7 @@ async fn insert_subscriber(
     let subscriber_id = Uuid::new_v4();
     let query = sqlx::query!(
         r#"
-    INSERT INTO subscriptions (id, email, name, subscribed_at, status)
+    INSERT INTO newsletter.subscriptions (id, email, name, subscribed_at, status)
     VALUES ($1, $2, $3, $4, 'pending_confirmation')
         "#,
         subscriber_id,
@@ -165,7 +165,7 @@ async fn store_token(
 ) -> Result<(), StoreTokenError> {
     let query = sqlx::query!(
         r#"
-    INSERT INTO subscription_tokens (subscription_token, subscriber_id)
+    INSERT INTO newsletter.subscription_tokens (subscription_token, subscriber_id)
     VALUES ($1, $2)
         "#,
         subscription_token,

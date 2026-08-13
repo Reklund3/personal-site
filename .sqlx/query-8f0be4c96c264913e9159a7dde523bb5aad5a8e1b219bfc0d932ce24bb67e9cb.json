@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT title, text_content, html_content\n        FROM newsletter_issues\n        WHERE\n            newsletter_issue_id = $1\n        ",
+  "query": "\n        SELECT title, text_content, html_content\n        FROM newsletter.newsletter_issues\n        WHERE\n            newsletter_issue_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -30,5 +30,5 @@
       false
     ]
   },
-  "hash": "38d1a12165ad4f50d8fbd4fc92376d9cc243dcc344c67b37f7fef13c6589e1eb"
+  "hash": "8f0be4c96c264913e9159a7dde523bb5aad5a8e1b219bfc0d932ce24bb67e9cb"
 }

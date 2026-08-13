@@ -31,7 +31,7 @@ async fn subscribe_persists_the_new_subscriber() {
     // once the test completes we can stop the server
     test_app.handle.abort();
 
-    let saved = sqlx::query!("SELECT email, name, status FROM subscriptions",)
+    let saved = sqlx::query!("SELECT email, name, status FROM newsletter.subscriptions",)
         .fetch_one(&test_app.pg_pool)
         .await
         .expect("Failed to fetch saved subscription.");
@@ -143,7 +143,7 @@ async fn subscribe_fails_if_there_is_a_fatal_database_error() {
     let test_app = spawn_app().await;
     let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
 
-    sqlx::query!(r#"ALTER TABLE subscriptions DROP COLUMN email"#)
+    sqlx::query!(r#"ALTER TABLE newsletter.subscriptions DROP COLUMN email"#)
         .execute(&test_app.pg_pool)
         .await
         .unwrap();
