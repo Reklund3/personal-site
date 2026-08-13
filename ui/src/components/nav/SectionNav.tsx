@@ -206,11 +206,29 @@ export default function SectionNav() {
         transition: 'all 0.25s ease',
       }}
     >
+      {/*
+        Tabs is used for its visuals — the sliding indicator and scrollable
+        overflow — but the ARIA it ships with is wrong for this control, so the
+        tab semantics are stripped back to plain links below.
+
+        Why: this is navigation, not a tab set. Tabs emit `role="tablist"` +
+        `role="tab"` + `aria-selected`, which promises a tabpanel relationship
+        that cannot exist here — all five sections are visible at once on a
+        scrolling one-pager, the opposite of what tabs mean. Worse, MUI applies a
+        roving tabindex, so only the active item was reachable with Tab and the
+        other four sat at `tabIndex={-1}` behind an arrow-key affordance that a
+        landmark announced as "navigation" never advertises.
+
+        Both roles are assigned before the prop spread (Tabs.js:750, Tab.js:267),
+        so passing `undefined` removes the attribute and lets the underlying <a>
+        expose its implicit "link" role.
+      */}
       <Tabs
         value={activeSection}
         onChange={handleTabChange}
         role="navigation"
         aria-label="Section navigation"
+        slotProps={{ list: { role: undefined } }}
         variant="scrollable"
         scrollButtons={false}
         textColor="primary"
@@ -247,6 +265,14 @@ export default function SectionNav() {
             // "copy link address" and crawlable internal links all depend on it.
             component={RouterLink}
             to={SECTION_PATHS[id]}
+            // Strip the tab semantics — see the comment on <Tabs> above.
+            role={undefined}
+            aria-selected={undefined}
+            // Overrides MUI's roving tabindex so every link is in the tab order.
+            tabIndex={0}
+            // The navigation equivalent of aria-selected: marks which link points
+            // at the page currently shown, without implying a panel.
+            aria-current={activeSection === id ? 'page' : undefined}
           />
         ))}
       </Tabs>
