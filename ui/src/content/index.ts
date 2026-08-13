@@ -238,6 +238,54 @@ export const CONTENT: SiteContent = {
       // four roles at CIG. Fill it in if there is something worth saying.
       bullets: [],
     },
+    // Pre-engineering finance career. Every date and bullet below is transcribed
+    // from the resume PDF rather than inferred — an earlier version of this entry
+    // carried a guessed range (03/2018 – 03/2019, derived from the Cloud Imperium
+    // start) that was wrong by roughly three years, alongside invented bullets.
+    //
+    // Ordering stays reverse-chronological by START date, matching the engineering
+    // roles above. That places the seasonal tax contract last despite its 2021 end
+    // date; its own third bullet explains the overlap with the engineering years.
+    {
+      title: 'Senior Financial Advisor',
+      company: 'RI Services',
+      dates: '10/2017 – 03/2019',
+      bullets: [
+        'Owned financial planning strategy for an assigned client portfolio, analyzing account data to surface risks and opportunities.',
+        'Delivered financial reports and recommendations across client portfolios, ensuring regulatory compliance.',
+        'Built and maintained client relationships through regular communication and performance reviews.',
+      ],
+    },
+    {
+      title: 'Audit Associate',
+      company: 'KPMG US',
+      dates: '07/2015 – 05/2016',
+      bullets: [
+        'Owned execution of financial statement audits for assigned clients, testing internal controls and account balances for GAAP compliance.',
+        'Prepared and reviewed audit workpapers and reconciliations underpinning engagement conclusions.',
+        'Partnered with cross-functional audit teams and client finance staff to resolve discrepancies and meet engagement deadlines.',
+      ],
+    },
+    {
+      title: 'Budget Analyst II',
+      company: 'Texas Parks & Wildlife Department',
+      dates: '05/2012 – 06/2015',
+      bullets: [
+        'Owned budget preparation, monitoring, and forecasting for assigned department programs, tracking variances against allocated funds.',
+        'Delivered expenditure analysis and reporting for management and legislative budget review.',
+        'Ensured budget compliance with state fiscal policies and reporting requirements across multiple programs.',
+      ],
+    },
+    {
+      title: 'Tax Associate (Seasonal Contract)',
+      company: 'Gindler, Chappell, Morrison & Co. P.C.',
+      dates: '01/2011 – 05/2021',
+      bullets: [
+        'Owned preparation of individual and business tax returns each tax season, ensuring accuracy and compliance with federal and state regulations.',
+        'Reviewed client financial records and coordinated documentation requests to support timely filing.',
+        'Maintained long-term client relationships across ten tax seasons, including part-time work concurrent with full-time engineering roles from 2019 onward.',
+      ],
+    },
   ],
   education: [
     "Texas State University, San Marcos, Tx — Master's in Accounting Information Systems",
