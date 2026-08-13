@@ -4,6 +4,7 @@ import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
+import Avatar from '@mui/material/Avatar';
 import { useContactDialog } from '../../context/ContactDialogContext';
 import { CONTENT } from '../../content';
 
@@ -22,25 +23,43 @@ export default function Masthead() {
       }}
     >
       <Container maxWidth="lg">
-        {/* Avatar */}
-        <Box
+        {/*
+          Avatar — the real headshot served by GET /headshot (src/routes/headshot.rs).
+
+          The handoff drew this as a plain initials circle (markup line 399) only
+          because the designer had no image asset; its README line 86 says to
+          "reuse any existing avatar image asset if the current site has one",
+          and the site does. The old ResponsiveAppBar was the sole consumer of
+          /headshot and was deleted in 33953f1, which is what left the initials
+          showing here.
+
+          "RE" stays as the fallback: Avatar renders its children whenever the
+          image is absent or fails to load, so the handoff's circle is exactly
+          what a broken /headshot degrades to.
+
+          Avatar already supplies borderRadius 50%, display:flex, centering and
+          overflow:hidden, so only the deltas are set below.
+        */}
+        <Avatar
+          src="/headshot"
+          alt={CONTENT.profile.name}
           sx={{
             width: 88,
             height: 88,
-            borderRadius: '50%',
-            bgcolor: 'primary.main',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
             mx: 'auto',
             mb: '18px',
+            // Fallback-only styling. When no image is showing, MUI adds its
+            // `colorDefault` class, which paints grey[600] with `background.default`
+            // text (Avatar.js:73-91) — not the handoff's #90caf9 / #062341. These
+            // sx rules are inserted after the component styles, so they win.
+            bgcolor: 'primary.main',
+            color: 'primary.contrastText',
             fontSize: 30,
             fontWeight: 700,
-            color: 'primary.contrastText',
           }}
         >
           RE
-        </Box>
+        </Avatar>
 
         {/* Name */}
         <Typography
