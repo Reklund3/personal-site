@@ -82,8 +82,12 @@ sqlx-cli: `cargo install --version='~0.8' sqlx-cli --no-default-features --featu
   otherwise run those two `psql` steps without `-it`, then `sqlx database create && sqlx migrate run`.
 - **CI lints without `--all-targets`**, so tests aren't linted. Running `cargo clippy --all-targets`
   locally surfaces many pre-existing `needless_borrow` warnings in `tests/api/` — not regressions.
-- **`configuration/local.yaml` is tracked** despite the `*/local.yaml` rule in `.gitignore` (the rule
-  doesn't apply to tracked files), so local tweaks ship to everyone if committed.
+- **`configuration/local.yaml` and `.env` are both tracked** despite `*/local.yaml` and `.env` in
+  `.gitignore` — the rules don't apply to files already tracked, so local tweaks ship to everyone if
+  committed. `.env` currently holds only a placeholder `DATABASE_URL`
+  (`postgres:password@localhost`), but a real connection string pasted there commits silently.
+  Untracking either (`git rm --cached`) needs a committed `.example` twin first, or a fresh clone
+  has nothing to start from.
 
 ## Configuration
 
