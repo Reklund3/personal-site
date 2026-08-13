@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT email, name, status FROM subscriptions",
+  "query": "SELECT email, name, status FROM newsletter.subscriptions",
   "describe": {
     "columns": [
       {
@@ -28,5 +28,5 @@
       false
     ]
   },
-  "hash": "9ab6536d2bf619381573b3bf13507d53b2e9cf50051e51c803e916f25b51abd2"
+  "hash": "48ee752d03a005b70d078ab93f0a3091cc0aa836e46d04a48fdcdf4455df38ec"
 }

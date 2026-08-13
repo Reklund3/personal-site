@@ -89,7 +89,7 @@ pub async fn admin_contacts(
 
 #[tracing::instrument(name = "Count contacts", skip(pool))]
 async fn count_contacts(pool: &PgPool) -> Result<i64, anyhow::Error> {
-    let row = sqlx::query!(r#"SELECT COUNT(*) as "count!" FROM contacts"#)
+    let row = sqlx::query!(r#"SELECT COUNT(*) as "count!" FROM audience.contacts"#)
         .fetch_one(pool)
         .await
         .context("Failed to perform a query to count contacts.")?;
@@ -106,7 +106,7 @@ async fn fetch_contacts_page(
         ContactRow,
         r#"
         SELECT id, email, name, message, contact_time
-        FROM contacts
+        FROM audience.contacts
         ORDER BY contact_time DESC
         LIMIT $1 OFFSET $2
         "#,

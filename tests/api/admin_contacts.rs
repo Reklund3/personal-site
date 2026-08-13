@@ -15,7 +15,7 @@ async fn insert_contact(
 ) {
     sqlx::query!(
         r#"
-        INSERT INTO contacts (id, email, name, message, contact_time)
+        INSERT INTO audience.contacts (id, email, name, message, contact_time)
         VALUES ($1, $2, $3, $4, $5)
         "#,
         Uuid::new_v4(),

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT (subscriber_id) FROM subscription_tokens\n            WHERE subscription_token = $1\n        ",
+  "query": "\n            SELECT (subscriber_id) FROM newsletter.subscription_tokens\n            WHERE subscription_token = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "7e26944dd61b9b6517a631f70f16bfaee92104bd6f1b3f5a4c4cba9aeb389276"
+  "hash": "39001c8d7a663c089993176e6cab2a3c64470c8ae883414d662ec5becff8f37d"
 }
