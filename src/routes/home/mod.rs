@@ -40,7 +40,7 @@ fn build_seo_tags(path: &str, base_url: &str) -> String {
     let escaped_title = html_escape(&full_title);
     let escaped_description = html_escape(&meta.description);
     let site_url = base_url.trim_end_matches('/');
-    let canonical_url = format!("{}{}", site_url, path);
+    let canonical_url = format!("{}/", site_url);
     let escaped_canonical = html_escape(&canonical_url);
     let headshot_url = format!("{}/headshot", site_url);
     let escaped_headshot = html_escape(&headshot_url);

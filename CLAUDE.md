@@ -39,9 +39,15 @@ runtime**. When they drift, the HTML points at asset filenames that no longer ex
 
 ### SPA routing contract
 
-Client routes are mirrored server-side so deep links and hard refreshes work. Three places move in
-lockstep: `<Routes>` in [ui/src/App.tsx](ui/src/App.tsx), the `.route(path, ...to(home))` entries in
-[src/startup.rs](src/startup.rs), and [public/sitemap.xml](public/sitemap.xml).
+Client routes are mirrored server-side so deep links and hard refreshes work. Two places move in
+lockstep: `<Routes>` in [ui/src/App.tsx](ui/src/App.tsx) and the `.route(path, ...to(home))` entries
+in [src/startup.rs](src/startup.rs).
+
+[public/sitemap.xml](public/sitemap.xml) does **not** — it deliberately lists only `/`. Every route
+renders the same one-pager and [src/routes/home/mod.rs](src/routes/home/mod.rs) emits
+`<link rel="canonical">` pointing at `/` regardless of the path requested, matching the single `/`
+entry in [ui/src/seo/routes.json](ui/src/seo/routes.json). Adding the section paths to the sitemap
+would advertise six duplicates of the canonical page.
 
 - Those routes must be registered **before** `Files::new("/", "./ui/dist/")` or the static handler wins.
 - There is deliberately **no `default_handler`** — unknown paths fall through to `Files` and return a

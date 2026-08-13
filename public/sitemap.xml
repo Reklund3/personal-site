@@ -2,48 +2,16 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
         xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
 
-  <!-- Homepage (Summary) -->
+  <!-- Homepage (One-Pager) -->
   <url>
     <loc>https://www.roberteklund.us/</loc>
-    <lastmod>2026-07-22</lastmod>
+    <lastmod>2026-08-11</lastmod>
     <changefreq>monthly</changefreq>
     <priority>1.0</priority>
     <image:image>
       <image:loc>https://www.roberteklund.us/headshot</image:loc>
       <image:title>Robert Eklund - Software Engineer</image:title>
     </image:image>
-  </url>
-
-  <!-- Skills Page -->
-  <url>
-    <loc>https://www.roberteklund.us/skills</loc>
-    <lastmod>2026-07-22</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-
-  <!-- Experience Page -->
-  <url>
-    <loc>https://www.roberteklund.us/experience</loc>
-    <lastmod>2026-07-22</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-
-  <!-- Education Page -->
-  <url>
-    <loc>https://www.roberteklund.us/education</loc>
-    <lastmod>2026-07-22</lastmod>
-    <changefreq>yearly</changefreq>
-    <priority>0.7</priority>
-  </url>
-
-  <!-- Portfolio Page -->
-  <url>
-    <loc>https://www.roberteklund.us/portfolio</loc>
-    <lastmod>2026-07-22</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
   </url>
 
 </urlset>

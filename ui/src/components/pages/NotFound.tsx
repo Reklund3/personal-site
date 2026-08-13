@@ -6,7 +6,12 @@ export default function NotFound() {
     return (
         <Box
             component="main"
+            // Same skip-link target as the one-pager, so the link in the layout
+            // resolves on this route too.
+            id="main-content"
+            tabIndex={-1}
             sx={{
+                outline: 'none',
                 my: 4,
                 display: 'flex',
                 flexDirection: 'column',
@@ -20,7 +25,9 @@ export default function NotFound() {
             <Typography variant="h4" component="h1">
                 404 - Page not found
             </Typography>
-            <Typography variant="body1" color="text.secondary">
+            <Typography variant="body1" sx={{
+                color: "text.secondary"
+            }}>
                 The page you're looking for doesn't exist.
             </Typography>
             <Link to="/">Back to Home</Link>

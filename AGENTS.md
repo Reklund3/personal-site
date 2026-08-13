@@ -4,11 +4,10 @@
 
 - **Stack**: Actix Web (Rust) backend + React/TypeScript (Vite + MUI) frontend in `ui/`.
 - **Build Integration**: `cargo build` automatically executes `npm ci` and `npm run build` inside `ui/` via `build.rs`. Rust embeds `ui/dist/index.html` and `ui/src/seo/routes.json` at compile time using `include_str!`.
-- **SPA Route Lockstep**: Adding or removing SPA page routes requires updating **3 places in lockstep**:
+- **SPA Route Lockstep**: The application uses an Editorial One-Pager architecture where all section routes (`/skills`, `/experience`, `/education`, `/portfolio`) serve the scrolling one-pager shell with a single canonical URL (`/`). Adding or removing SPA section routes requires updating **2 places in lockstep**:
   1. Client routes in `ui/src/App.tsx`
-  2. Server SPA routes in `src/startup.rs` and route metadata in `ui/src/seo/routes.json`
-  3. Sitemap entries in `public/sitemap.xml`
-- **SEO Architecture**: Route metadata source of truth is `ui/src/seo/routes.json`. Backend (`src/routes/home/mod.rs`) injects dynamic `<head>` SEO tags into `index.html` at the `<!--SEO-->` marker for server-side unfurls. Frontend (`ui/src/utils/seo.tsx`) reads `routes.json` for client-side navigation.
+  2. Server SPA routes in `src/startup.rs`
+- **SEO Architecture**: Route metadata source of truth is `ui/src/seo/routes.json`. Backend (`src/routes/home/mod.rs`) injects `<head>` SEO tags (title, description, canonical `/`, OG, Twitter, JSON-LD) into `index.html` at `<!--SEO-->` and server-renders the `<h1>` body at `<!--SSR-BODY-->` for crawlers. Frontend (`ui/src/utils/seo.tsx`) updates `document.title` during client-side navigation. `public/sitemap.xml` contains a single apex entry for `/`.
 
 ## Verification & Commands
 

@@ -1,69 +1,20 @@
-import { Container } from '@mui/material';
-import React, { lazy, Suspense, useEffect, useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import CircularProgress from '@mui/material/CircularProgress';
-import Box from '@mui/material/Box';
-
-// Lazy load components with prefetching
-const Summary = lazy(() => {
-    const module = import('./components/pages/Summary');
-    return module;
-});
-const Skills = lazy(() => import('./components/pages/Skills'));
-const Experience = lazy(() => import('./components/pages/Experience'));
-const Education = lazy(() => import('./components/pages/Education'));
-const Portfolio = lazy(() => import('./components/pages/Portfolio'));
-const NotFound = lazy(() => import('./components/pages/NotFound'));
-
-// Prefetch components
-const prefetchComponents = () => {
-    // Prefetch all components in the background
-    const prefetchPromises = [
-        import('./components/pages/Summary'),
-        import('./components/pages/Skills'),
-        import('./components/pages/Experience'),
-        import('./components/pages/Education'),
-        import('./components/pages/Portfolio')
-    ];
-
-    Promise.all(prefetchPromises).then(() => {
-        console.log('All components prefetched');
-    });
-};
-
-// Loading component
-const LoadingComponent = () => (
-    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-        <CircularProgress />
-    </Box>
-);
+import React from 'react';
+import { Routes, Route } from 'react-router-dom';
+import OnePager from './components/one-pager/OnePager';
+import NotFound from './components/pages/NotFound';
 
 export default function App() {
-    const [hasPrefetched, setHasPrefetched] = useState(false);
-
-    // Prefetch components on initial load
-    useEffect(() => {
-        if (!hasPrefetched) {
-            prefetchComponents();
-            setHasPrefetched(true);
-        }
-    }, [hasPrefetched]);
-
     return (
-        <Container maxWidth="lg">
-            <Suspense fallback={<LoadingComponent />}>
-                <Routes>
-                    <Route path="/" element={<Summary />} />
-                    <Route path="/skills" element={<Skills />} />
-                    <Route path="/experience" element={<Experience />} />
-                    <Route path="/education" element={<Education />} />
-                    <Route path="/portfolio" element={<Portfolio />} />
-                    {/* Redirect old routes to new Portfolio page */}
-                    <Route path="/open-source" element={<Navigate to="/portfolio" replace />} />
-                    <Route path="/projects" element={<Navigate to="/portfolio" replace />} />
-                    <Route path="*" element={<NotFound />} />
-                </Routes>
-            </Suspense>
-        </Container>
+        <Routes>
+            <Route path="/" element={<OnePager />} />
+            <Route path="/skills" element={<OnePager />} />
+            <Route path="/experience" element={<OnePager />} />
+            <Route path="/education" element={<OnePager />} />
+            <Route path="/portfolio" element={<OnePager />} />
+            {/* legacy paths — land on the Portfolio anchor, no redirect */}
+            <Route path="/open-source" element={<OnePager />} />
+            <Route path="/projects" element={<OnePager />} />
+            <Route path="*" element={<NotFound />} />
+        </Routes>
     );
 }
