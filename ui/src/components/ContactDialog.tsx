@@ -135,9 +135,7 @@ export const validateMessage = (message: string) => {
     // tests what was actually meant.
     const asText = sanitizeToText(message);
 
-    if (message.length === 0) {
-        return "This field is required";
-    } else if (message.trim().length === 0) {
+    if (message.trim().length === 0) {
         return "This field is required";
     } else if (asText.trim().length === 0) {
         // Nothing at all survives — the message is markup end to end, so naming
