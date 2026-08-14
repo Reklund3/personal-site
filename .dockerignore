@@ -7,3 +7,9 @@ tests/
 Dockerfile
 scripts/
 migrations/
+# Build artifacts regenerated inside the image by build.rs (`npm ci` and
+# `npm run build`). Sending them wastes ~420MB of build context, and shipping a
+# host-built ui/dist would let the image inherit assets that were never compiled
+# in the container — masking a broken UI build instead of failing on it.
+ui/node_modules/
+ui/dist/
