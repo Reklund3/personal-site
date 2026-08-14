@@ -24,8 +24,7 @@ function checkNameForIllegalChars(name: string) {
     return foundIllegalChars;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function debounce<T extends (...args: any[]) => void>(func: T, wait: number) {
+function debounce<T extends (...args: never[]) => void>(func: T, wait: number) {
     let timeout: ReturnType<typeof setTimeout> | null;
 
     return (...args: Parameters<T>) => {
@@ -42,7 +41,7 @@ function debounce<T extends (...args: any[]) => void>(func: T, wait: number) {
 
 export const validateName = (name: string) => {
     const invalidChars = checkNameForIllegalChars(name);
-    if (name.length === 0) {
+    if (name.trim().length === 0) {
         return "This field is required";
     } else if (invalidChars.length > 0) {
         return `Name contains illegal characters: ${invalidChars.join(", ")}`;
@@ -64,7 +63,7 @@ export const validateName = (name: string) => {
  * "R&amp;D"). Re-parsing through a detached textarea is safe here precisely
  * because the sanitize call above has already removed every tag.
  */
-const sanitizeToText = (value: string) => {
+export const sanitizeToText = (value: string) => {
     const stripped = DOMPurify.sanitize(value, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
     const decoder = document.createElement('textarea');
     decoder.innerHTML = stripped;
@@ -137,6 +136,8 @@ export const validateMessage = (message: string) => {
     const asText = sanitizeToText(message);
 
     if (message.length === 0) {
+        return "This field is required";
+    } else if (message.trim().length === 0) {
         return "This field is required";
     } else if (asText.trim().length === 0) {
         // Nothing at all survives — the message is markup end to end, so naming

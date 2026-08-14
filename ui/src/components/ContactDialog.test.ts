@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { validateName, validateEmail, validateMessage, findHtmlTags } from './ContactDialog';
+import { validateName, validateEmail, validateMessage, findHtmlTags, sanitizeToText } from './ContactDialog';
 
 describe('ContactDialog validation logic', () => {
     describe('validateName', () => {
         it('returns error for empty name', () => {
             expect(validateName('')).toBe('This field is required');
+        });
+
+        it('returns error for whitespace name', () => {
+            expect(validateName('   ')).toBe('This field is required');
         });
 
         it('returns error for illegal characters', () => {
@@ -68,6 +72,10 @@ describe('ContactDialog validation logic', () => {
             expect(validateMessage('')).toBe('This field is required');
         });
 
+        it('returns error for whitespace message', () => {
+            expect(validateMessage('   ')).toBe('This field is required');
+        });
+
         it('accepts text containing characters the sanitizer escapes', () => {
             expect(validateMessage('R&D budget')).toBe('');
             expect(validateMessage('5 < 6')).toBe('');
@@ -103,6 +111,13 @@ describe('ContactDialog validation logic', () => {
 
         it('returns empty array for no tags', () => {
             expect(findHtmlTags('Hello world')).toEqual([]);
+        });
+    });
+
+    describe('sanitizeToText', () => {
+        it('strips HTML tags and decodes entities', () => {
+            expect(sanitizeToText('<div>R&amp;D</div>')).toBe('R&D');
+            expect(sanitizeToText('<p>5 < 6</p>')).toBe('5 < 6');
         });
     });
 });
