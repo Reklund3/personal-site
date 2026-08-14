@@ -50,6 +50,14 @@ describe('ContactDialog validation logic', () => {
             expect(validateEmail('john@example.')).toBe('Please enter a valid email address, e.g. name@example.com');
         });
 
+        it('returns error for email containing <', () => {
+            expect(validateEmail('a<b@example.com')).toBe('Email contains illegal characters: <');
+        });
+
+        it('returns error for email missing part before @', () => {
+            expect(validateEmail('@example.com')).toBe('Email address is missing the part before the @');
+        });
+
         it('returns empty string for valid email', () => {
             expect(validateEmail('john.doe@example.com')).toBe('');
         });
@@ -60,8 +68,18 @@ describe('ContactDialog validation logic', () => {
             expect(validateMessage('')).toBe('This field is required');
         });
 
+        it('accepts text containing characters the sanitizer escapes', () => {
+            expect(validateMessage('R&D budget')).toBe('');
+            expect(validateMessage('5 < 6')).toBe('');
+            expect(validateMessage('a & b')).toBe('');
+        });
+
         it('returns error for message that is only HTML', () => {
             expect(validateMessage('<div></div>')).toBe('Your message is entirely HTML and would arrive empty. Please write it as plain text.');
+        });
+
+        it('returns error for message containing HTML comments', () => {
+            expect(validateMessage('hello <!-- hi -->')).toBe('Invalid input. Please remove any HTML markup.');
         });
 
         it('returns error for message containing HTML tags', () => {
