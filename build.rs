@@ -8,6 +8,7 @@ fn main() {
 
     let npm_ci_status = Command::new("npm")
         .arg("ci")
+        .arg("--ignore-scripts")
         .current_dir("ui")
         .status()
         .expect("failed to execute npm ci");
