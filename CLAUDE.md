@@ -93,7 +93,10 @@ sqlx-cli: `cargo install --version='~0.8' sqlx-cli --no-default-features --featu
 
 YAML in [configuration/](configuration/): `base.yaml` plus `local.yaml` / `production.yaml`, selected
 by `APP_ENVIRONMENT` (default `local`). Env vars override with the `APP_` prefix and `__` separator
-(e.g. `APP_APPLICATION__PORT`). Also honored: `DATABASE_URL`, `COOKIE_SECURE`.
+(e.g. `APP_APPLICATION__PORT`). That prefix is the only runtime override mechanism. In particular the
+app builds its database connection from the `database:` section, **not** from `DATABASE_URL` —
+that one is read by sqlx-cli and the compile-time query macros, which is why `.env` carries it and
+why `cargo test` needs it exported.
 
 TLS uses rustls with `security/cert.pem` and `security/key.pem`, gated by `tls_enabled` (false in
 `base.yaml` and in tests). Docker can mount secrets via `-v '/hostpath/':'/run/secrets':'ro'`.
