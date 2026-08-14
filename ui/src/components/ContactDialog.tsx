@@ -24,7 +24,8 @@ function checkNameForIllegalChars(name: string) {
     return foundIllegalChars;
 }
 
-function debounce<T extends (...args: any[]) => any>(func: T, wait: number) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function debounce<T extends (...args: any[]) => void>(func: T, wait: number) {
     let timeout: ReturnType<typeof setTimeout> | null;
 
     return (...args: Parameters<T>) => {
@@ -39,7 +40,7 @@ function debounce<T extends (...args: any[]) => any>(func: T, wait: number) {
     }
 }
 
-const validateName = (name: string) => {
+export const validateName = (name: string) => {
     const invalidChars = checkNameForIllegalChars(name);
     if (name.length === 0) {
         return "This field is required";
@@ -75,14 +76,14 @@ const sanitizeToText = (value: string) => {
  * validateName names illegal characters. Parsed in a detached document — this is
  * never inserted anywhere, and parseFromString does not execute scripts.
  */
-function findHtmlTags(value: string) {
+export function findHtmlTags(value: string) {
     const doc = new DOMParser().parseFromString(value, 'text/html');
     const tags = new Set<string>();
     doc.body.querySelectorAll('*').forEach((el) => tags.add(el.tagName.toLowerCase()));
     return [...tags];
 }
 
-const validateEmail = (email: string) => {
+export const validateEmail = (email: string) => {
     if (email.length === 0) {
         return "This field is required";
     }
@@ -119,7 +120,7 @@ const validateEmail = (email: string) => {
     return "";
 };
 
-const validateMessage = (message: string) => {
+export const validateMessage = (message: string) => {
     // DOMPurify is the authority on what would be stripped; DOMParser only supplies
     // tag names so the user is told exactly what to remove rather than left to
     // guess — the same contract validateName keeps for illegal characters.
@@ -168,46 +169,31 @@ const ContactDialog: React.FC<ContactDialogProps> = ({dialogOpen, onClose}: Cont
         message: false,
     });
 
-    const [nameError, setNameError] = React.useState<string>('');
-    const [emailError, setEmailError] = React.useState<string>('');
     const [messageError, setMessageError] = React.useState<string>('');
 
     const [isSubmitting, setIsSubmitting] = React.useState(false);
     const [requestStatus, setRequestStatus] = React.useState<{ success?: boolean, message?: string } | null>(null);
 
-    React.useEffect(() => {
-        if (touched.name) { // Only validate if the dialog is open
-            setNameError(validateName(formData.name));
-        }
-    }, [formData.name, touched.name]);
-    React.useEffect(() => {
-        if (touched.email) { // Only validate if the dialog is open
-            setEmailError(validateEmail(formData.email));
-        }
-    }, [formData.email, touched.email]);
+    // Derived errors
+    const nameError = touched.name ? validateName(formData.name) : '';
+    const emailError = touched.email ? validateEmail(formData.email) : '';
 
-    const debounceValidateMessage = React.useCallback(
-        debounce(
+    const debounceValidateMessage = React.useMemo(
+        () => debounce(
             (message: string) => setMessageError(validateMessage(message)),
             500
         ),
         []
     );
+
     React.useEffect(() => {
         if (touched.message) { // Only validate if the dialog is open
             debounceValidateMessage(formData.message);
         }
     }, [formData.message, touched.message, debounceValidateMessage]);
 
-    React.useEffect(() => {
-        if (nameError === '' && emailError === '' && messageError === '' && formData.name.length > 0 && formData.email.length > 0 && formData.message.length > 0) {
-            setIsFormValid(true);
-        } else {
-            setIsFormValid(false);
-        }
-    }, [nameError, emailError, messageError, formData.name, formData.email, formData.message]);
-
-    const [isFormValid, setIsFormValid] = React.useState(false);
+    // Derived form validity
+    const isFormValid = nameError === '' && emailError === '' && messageError === '' && formData.name.length > 0 && formData.email.length > 0 && formData.message.length > 0;
 
     const handleFormChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         setFormData({
@@ -219,10 +205,7 @@ const ContactDialog: React.FC<ContactDialogProps> = ({dialogOpen, onClose}: Cont
 
     const handleClose = () => {
         setFormData({ name: '', email: '', message: '' });
-        setNameError('');
-        setEmailError('');
         setMessageError('');
-        setIsFormValid(false);
         setIsSubmitting(false);
         setRequestStatus(null);
         setTouched({name: false, email: false, message: false});
@@ -347,7 +330,6 @@ const ContactDialog: React.FC<ContactDialogProps> = ({dialogOpen, onClose}: Cont
                     <Box>
                         <FormControl fullWidth>
                             <TextField
-                                autoFocus
                                 margin="dense"
                                 id="name"
                                 label="Name"
