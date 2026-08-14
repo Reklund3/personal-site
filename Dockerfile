@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest-rust-trixie AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.97-trixie AS chef
 WORKDIR /app
 RUN apt update && apt install lld clang nodejs npm -y
 
