@@ -153,19 +153,22 @@ export default function SectionNav() {
     // in flight. A second scrollIntoView here would abort it.
     if (programmatic === targetId) return;
 
-    requestAnimationFrame(() => {
+    // Cancelled on cleanup: without that, a navigation landing inside the same frame
+    // would leave this one queued and scroll to the section we just left.
+    const frame = requestAnimationFrame(() => {
       document.getElementById(targetId)?.scrollIntoView({ behavior: 'auto', block: 'start' });
     });
-    // location.key, not location.pathname: clicking the tab for the section already in
-    // the URL replaces to the same path, which mints a new key but leaves the pathname
-    // alone. Keyed on the pathname this effect never ran, the flag never cleared, and
-    // the next genuine deep link to that section was swallowed.
+    return () => cancelAnimationFrame(frame);
+
+    // location.key is what makes this fire at all on a same-path replace: clicking the
+    // tab for the section already in the URL mints a new key while the pathname stays
+    // put, and keyed on the pathname alone this effect never ran, the flag never
+    // cleared, and the next genuine deep link to that section was swallowed.
     //
-    // location.pathname is read above, but adding it here would defeat the fix: the
-    // same-path replace that must retrigger this effect leaves location.pathname
-    // unchanged, which is the exact bug.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.key]);
+    // pathname is listed alongside it because the body reads it. Dependencies are
+    // OR-ed — any one of them changing re-runs the effect — so naming both satisfies
+    // exhaustive-deps without narrowing when this runs.
+  }, [location.key, location.pathname]);
 
   /**
    * Handle tab click: set active, scroll, update URL
