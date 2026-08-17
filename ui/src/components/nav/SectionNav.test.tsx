@@ -10,8 +10,31 @@ import SectionNav from './SectionNav';
 const SECTION_IDS = ['about', 'skills', 'experience', 'education', 'portfolio'];
 
 let scrollIntoViewMock: ReturnType<typeof vi.fn>;
+let scrollToMock: ReturnType<typeof vi.fn>;
+let intersectionCallback: IntersectionObserverCallback | null = null;
+
+/** Drive the scroll-spy so `id` becomes the active (MUI-selected) tab. */
+function scrollSpyTo(id: string) {
+  act(() => {
+    intersectionCallback?.(
+      [
+        {
+          target: document.getElementById(id),
+          isIntersecting: true,
+          intersectionRect: { height: 500 },
+        },
+      ] as unknown as IntersectionObserverEntry[],
+      null as unknown as IntersectionObserver
+    );
+  });
+}
 
 beforeEach(() => {
+  // jsdom has window.scrollTo but it only logs "Not implemented". '/' scrolls the
+  // window rather than into an element, so this is the assertion target for it.
+  scrollToMock = vi.fn();
+  vi.stubGlobal('scrollTo', scrollToMock);
+
   // jsdom does not implement scrollIntoView at all — stub it on the prototype so
   // every element picks it up, and keep the mock itself as the assertion target.
   scrollIntoViewMock = vi.fn();
@@ -26,9 +49,15 @@ beforeEach(() => {
   }
   vi.stubGlobal('ResizeObserver', MockResizeObserver);
 
-  // jsdom does not implement IntersectionObserver. The scroll-spy effect
-  // constructs one on every mount.
+  // jsdom does not implement IntersectionObserver. The scroll-spy effect constructs one
+  // on every mount; the callback is captured so tests can drive which section is active,
+  // which decides whether MUI considers a tab selected — and MUI's Tab only fires
+  // onChange when it is NOT already selected.
+  intersectionCallback = null;
   class MockIntersectionObserver {
+    constructor(cb: IntersectionObserverCallback) {
+      intersectionCallback = cb;
+    }
     observe = vi.fn();
     unobserve = vi.fn();
     disconnect = vi.fn();
@@ -135,7 +164,7 @@ describe('SectionNav', () => {
 
   it('scrolls smoothly on a tab click from / and does not double-scroll', async () => {
     const { router } = renderSectionNav('/');
-    // '/' needs no scroll on mount.
+    // '/' needs no scroll into a section on mount.
     expect(scrollIntoViewMock).not.toHaveBeenCalled();
 
     const skillsTab = screen.getByRole('link', { name: 'Skills' });
@@ -146,6 +175,56 @@ describe('SectionNav', () => {
     expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
     expect(scrollIntoViewMock).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'start' });
     expect(router.state.location.pathname).toBe('/skills');
+  });
+
+  describe('history', () => {
+    it('pushes so Back returns to the previous section rather than leaving the site', async () => {
+      const { router } = renderSectionNav('/');
+      const startingEntries = router.state.historyAction;
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('link', { name: 'Skills' }));
+      });
+      expect(router.state.location.pathname).toBe('/skills');
+      // PUSH, not REPLACE: replacing overwrote the entry the visitor arrived on, so
+      // Back skipped past the site entirely instead of returning to '/'.
+      expect(router.state.historyAction).toBe('PUSH');
+      expect(startingEntries).not.toBe('PUSH');
+
+      await act(async () => {
+        await router.navigate(-1);
+      });
+      expect(router.state.location.pathname).toBe('/');
+    });
+
+    it('scrolls to the top when a Back navigation lands on /', async () => {
+      const { router } = renderSectionNav('/skills');
+
+      await act(async () => {
+        await router.navigate('/');
+      });
+
+      expect(scrollToMock).toHaveBeenCalledWith({ top: 0, behavior: 'auto' });
+    });
+
+    it('does not yank to the top while the About tab is smooth-scrolling', async () => {
+      const { router } = renderSectionNav('/skills');
+      // About is selected on mount, and MUI suppresses onChange for the selected tab —
+      // so the scroll-spy has to move off it before the click reaches the handler.
+      scrollSpyTo('skills');
+      scrollToMock.mockClear();
+      scrollIntoViewMock.mockClear();
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('link', { name: 'About' }));
+      });
+
+      expect(router.state.location.pathname).toBe('/');
+      // The click owns this scroll; the effect must recognise its own flag and stay
+      // out of the way rather than cancelling the smooth scroll with a jump to top.
+      expect(scrollToMock).not.toHaveBeenCalled();
+      expect(scrollIntoViewMock).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'start' });
+    });
   });
 
   it('leaves modified clicks to the browser', async () => {

@@ -146,23 +146,31 @@ export default function SectionNav() {
     const programmatic = programmaticScrollRef.current;
     programmaticScrollRef.current = null;
 
-    const targetId = PATH_SECTIONS[location.pathname];
+    // '/' is the top of the page rather than a section, so it scrolls to the top
+    // instead of into an element — but it still carries the 'about' id, because that
+    // is the tab that owns it and the flag below is keyed by tab.
+    const isRoot = location.pathname === '/';
+    const targetId = isRoot ? 'about' : PATH_SECTIONS[location.pathname];
     if (!targetId) return;
 
     // This location change came from a tab click, which already has a smooth scroll
-    // in flight. A second scrollIntoView here would abort it.
+    // in flight. A second scroll here would abort it.
     if (programmatic === targetId) return;
 
     // Cancelled on cleanup: without that, a navigation landing inside the same frame
     // would leave this one queued and scroll to the section we just left.
     const frame = requestAnimationFrame(() => {
+      if (isRoot) {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        return;
+      }
       document.getElementById(targetId)?.scrollIntoView({ behavior: 'auto', block: 'start' });
     });
     return () => cancelAnimationFrame(frame);
 
-    // location.key is what makes this fire at all on a same-path replace: clicking the
-    // tab for the section already in the URL mints a new key while the pathname stays
-    // put, and keyed on the pathname alone this effect never ran, the flag never
+    // location.key is what makes this fire at all on a same-path navigation: clicking
+    // the tab for the section already in the URL mints a new key while the pathname
+    // stays put, and keyed on the pathname alone this effect never ran, the flag never
     // cleared, and the next genuine deep link to that section was swallowed.
     //
     // pathname is listed alongside it because the body reads it. Dependencies are
@@ -192,7 +200,7 @@ export default function SectionNav() {
 
       // For plain clicks we take over: preventDefault stops RouterLink's own
       // navigation (it bails when the event is already defaulted-prevented), so the
-      // smooth scroll below runs and the URL update stays a `replace`.
+      // smooth scroll below runs instead of the router's instant jump.
       event.preventDefault();
 
       // Set active section immediately
@@ -216,8 +224,11 @@ export default function SectionNav() {
       // Scroll to section (scrollMarginTop handles the offset)
       element.scrollIntoView({ behavior, block: 'start' });
 
-      // Update URL with router-aware navigation
-      if (path) navigate(path, { replace: true });
+      // Push, not replace. These tabs are real anchors, so Back has to undo a click
+      // the way it does for any link. Replacing overwrote the single entry the visitor
+      // arrived on, so the stack never grew and one Back press left the site entirely
+      // no matter how many sections they had clicked through.
+      if (path) navigate(path);
     },
     [navigate]
   );
