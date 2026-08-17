@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
@@ -20,6 +20,20 @@ const SECTION_PATHS = {
   portfolio: '/portfolio',
 } as const;
 
+/**
+ * Reverse of SECTION_PATHS, including the legacy aliases. '/' is deliberately
+ * absent — it is the top of the page and needs no scroll.
+ */
+const PATH_SECTIONS: Record<string, string> = {
+  '/skills': 'skills',
+  '/experience': 'experience',
+  '/education': 'education',
+  '/portfolio': 'portfolio',
+  // Legacy paths land on the portfolio anchor.
+  '/open-source': 'portfolio',
+  '/projects': 'portfolio',
+};
+
 export default function SectionNav() {
   const { setNavHeight } = useSectionNavHeight();
   const navigate = useNavigate();
@@ -37,21 +51,22 @@ export default function SectionNav() {
   /**
    * Measure nav height and publish to context
    */
-  useEffect(() => {
-    if (!navRef.current) return;
+  useLayoutEffect(() => {
+    const node = navRef.current;
+    if (!node) return;
+
+    // Publish synchronously, before the browser paints. The deep-link scroll runs in a
+    // requestAnimationFrame callback, and rAF callbacks are specified to run BEFORE
+    // ResizeObserver delivery in the same rendering update — so on a deep link the
+    // scroll fired while navHeight was still 0 and Section's scrollMarginTop was 0px,
+    // landing the section under the sticky bar.
+    setNavHeight(node.offsetHeight);
 
     const resizeObserver = new ResizeObserver(() => {
-      if (navRef.current) {
-        const h = navRef.current.offsetHeight;
-        setNavHeight(h);
-      }
+      if (navRef.current) setNavHeight(navRef.current.offsetHeight);
     });
-
-    resizeObserver.observe(navRef.current);
-
-    return () => {
-      resizeObserver.disconnect();
-    };
+    resizeObserver.observe(node);
+    return () => resizeObserver.disconnect();
   }, [setNavHeight]);
 
   /**
@@ -125,42 +140,43 @@ export default function SectionNav() {
    * Initial scroll on direct deep links
    */
   useEffect(() => {
-    // Resolve pathname to section id
-    let targetId: string | null = null;
+    // Consume the flag on EVERY location change, not just ones that resolve to a
+    // section. It is set immediately before navigate(), so the very next effect run
+    // is the navigation it belongs to — any later run must not still see it.
+    const programmatic = programmaticScrollRef.current;
+    programmaticScrollRef.current = null;
 
-    if (location.pathname === '/') {
-      // No scroll needed — already at top
-      return;
-    } else if (location.pathname === '/skills') {
-      targetId = 'skills';
-    } else if (location.pathname === '/experience') {
-      targetId = 'experience';
-    } else if (location.pathname === '/education') {
-      targetId = 'education';
-    } else if (location.pathname === '/portfolio') {
-      targetId = 'portfolio';
-    } else if (location.pathname === '/open-source' || location.pathname === '/projects') {
-      // Legacy paths map to portfolio
-      targetId = 'portfolio';
-    }
-
+    // '/' is the top of the page rather than a section, so it scrolls to the top
+    // instead of into an element — but it still carries the 'about' id, because that
+    // is the tab that owns it and the flag below is keyed by tab.
+    const isRoot = location.pathname === '/';
+    const targetId = isRoot ? 'about' : PATH_SECTIONS[location.pathname];
     if (!targetId) return;
 
-    // If this pathname change was triggered by a tab click, skip the auto-scroll
-    // so it doesn't abort the in-flight smooth scroll.
-    if (programmaticScrollRef.current === targetId) {
-      programmaticScrollRef.current = null;
-      return;
-    }
+    // This location change came from a tab click, which already has a smooth scroll
+    // in flight. A second scroll here would abort it.
+    if (programmatic === targetId) return;
 
-    // Wait for layout to settle (after fonts/images), then scroll
-    requestAnimationFrame(() => {
-      const element = document.getElementById(targetId!);
-      if (element) {
-        element.scrollIntoView({ behavior: 'auto', block: 'start' });
+    // Cancelled on cleanup: without that, a navigation landing inside the same frame
+    // would leave this one queued and scroll to the section we just left.
+    const frame = requestAnimationFrame(() => {
+      if (isRoot) {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        return;
       }
+      document.getElementById(targetId)?.scrollIntoView({ behavior: 'auto', block: 'start' });
     });
-  }, [location.pathname]);
+    return () => cancelAnimationFrame(frame);
+
+    // location.key is what makes this fire at all on a same-path navigation: clicking
+    // the tab for the section already in the URL mints a new key while the pathname
+    // stays put, and keyed on the pathname alone this effect never ran, the flag never
+    // cleared, and the next genuine deep link to that section was swallowed.
+    //
+    // pathname is listed alongside it because the body reads it. Dependencies are
+    // OR-ed — any one of them changing re-runs the effect — so naming both satisfies
+    // exhaustive-deps without narrowing when this runs.
+  }, [location.key, location.pathname]);
 
   /**
    * Handle tab click: set active, scroll, update URL
@@ -184,7 +200,7 @@ export default function SectionNav() {
 
       // For plain clicks we take over: preventDefault stops RouterLink's own
       // navigation (it bails when the event is already defaulted-prevented), so the
-      // smooth scroll below runs and the URL update stays a `replace`.
+      // smooth scroll below runs instead of the router's instant jump.
       event.preventDefault();
 
       // Set active section immediately
@@ -194,21 +210,25 @@ export default function SectionNav() {
       const element = document.getElementById(newValue);
       if (!element) return;
 
-      // Flag that this scroll was initiated programmatically by tab click
-      programmaticScrollRef.current = newValue;
-
       // Determine smooth vs instant based on reduced motion
       const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const behavior = prefersReducedMotion ? 'auto' : 'smooth';
 
+      // Flag that this scroll was initiated programmatically by tab click — but only
+      // when a navigate() will actually follow. Setting it unconditionally would leave
+      // it stranded for any id absent from SECTION_PATHS, which the deep-link effect
+      // would never clear.
+      const path = SECTION_PATHS[newValue as keyof typeof SECTION_PATHS];
+      programmaticScrollRef.current = path ? newValue : null;
+
       // Scroll to section (scrollMarginTop handles the offset)
       element.scrollIntoView({ behavior, block: 'start' });
 
-      // Update URL with router-aware navigation
-      const path = SECTION_PATHS[newValue as keyof typeof SECTION_PATHS];
-      if (path) {
-        navigate(path, { replace: true });
-      }
+      // Push, not replace. These tabs are real anchors, so Back has to undo a click
+      // the way it does for any link. Replacing overwrote the single entry the visitor
+      // arrived on, so the stack never grew and one Back press left the site entirely
+      // no matter how many sections they had clicked through.
+      if (path) navigate(path);
     },
     [navigate]
   );
