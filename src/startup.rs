@@ -90,13 +90,23 @@ fn create_security_headers(tls_enabled: bool) -> middleware::DefaultHeaders {
         .add(("X-Content-Type-Options", "nosniff"))
         .add(("Referrer-Policy", "strict-origin-when-cross-origin"))
         .add(("X-XSS-Protection", "1; mode=block"))
+        // No 'unsafe-inline' in script-src: the build emits one external bundle and nothing
+        // renders an inline handler. The JSON-LD in home/mod.rs is exempt — a data block's
+        // type is not a JavaScript MIME type, so script-src never applies to it.
+        //
+        // style-src must keep it: Emotion (MUI v6) injects <style> elements at runtime, and
+        // dropping it needs a nonce threaded through Emotion's cache.
+        //
+        // The font origins are listed because 'unsafe-inline' does not cover *external*
+        // stylesheets. With both directives limited to 'self' the Google Fonts stylesheet and
+        // its woff2 files were blocked, and the page fell back to a system font.
         .add((
             "Content-Security-Policy",
             "default-src 'self'; \
-             script-src 'self' 'unsafe-inline'; \
-             style-src 'self' 'unsafe-inline'; \
+             script-src 'self'; \
+             style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
              img-src 'self' data:; \
-             font-src 'self'; \
+             font-src 'self' https://fonts.gstatic.com; \
              connect-src 'self'; \
              frame-ancestors 'none'; \
              base-uri 'self'; \
@@ -168,6 +178,10 @@ async fn run(
             .service(
                 web::scope("/admin")
                     .wrap(from_fn(reject_anonymous_users))
+                    // /admin renders one session's private data. A bare 200 is
+                    // heuristically cacheable under RFC 9111, so a browser could re-serve
+                    // the contact list from history after logout.
+                    .wrap(middleware::DefaultHeaders::new().add(("Cache-Control", "no-store")))
                     .route("/dashboard", web::get().to(admin_dashboard))
                     .route("/contacts", web::get().to(admin_contacts))
                     .route("/newsletters", web::get().to(publish_newsletter_form))

@@ -6,6 +6,7 @@ mod health_check;
 mod helpers;
 mod login;
 mod newsletter;
+mod security_headers;
 mod seo_metadata;
 mod session_rotation;
 mod spa_routing;
