@@ -1,7 +1,6 @@
 use crate::helpers::spawn_app;
 
-/// The HTML shell the server embeds at compile time (`src/routes/home/mod.rs` does the same
-/// `include_str!`), so what these tests scan is byte-identical to what is served.
+/// The same shell `home/mod.rs` embeds, so these tests scan exactly what is served.
 static INDEX_HTML: &str = include_str!("../../ui/dist/index.html");
 
 /// Pull one directive's source list out of a `Content-Security-Policy` header value.
@@ -25,11 +24,8 @@ async fn fetch_csp(app: &crate::helpers::TestApp) -> String {
         .to_string()
 }
 
-/// `'unsafe-inline'` in script-src is the single directive that decides whether an injected
-/// `<script>` runs. Nothing in this app needs it: the Vite build emits one external module
-/// bundle and no handler renders an inline handler or a `javascript:` URL. The JSON-LD block
-/// in `home/mod.rs` is not an exception — a `type="application/ld+json"` script is a data
-/// block, and HTML's "prepare the script element" steps return before the CSP check.
+/// script-src decides whether an injected `<script>` runs, and nothing here needs inline:
+/// one external bundle, no inline handlers, and JSON-LD is an exempt data block.
 #[tokio::test]
 async fn csp_script_src_allows_no_inline_or_eval() {
     let app = spawn_app().await;
@@ -48,11 +44,9 @@ async fn csp_script_src_allows_no_inline_or_eval() {
     );
 }
 
-/// Guards the defect this test file was written for: the shell loads its webfont stylesheet
-/// from another origin, and a style-src of `'self' 'unsafe-inline'` silently blocked it —
-/// `'unsafe-inline'` covers inline `<style>`, never an external stylesheet. Deriving the
-/// origins from the shell rather than hardcoding them means adding a new external stylesheet
-/// without widening the CSP fails here instead of in a browser.
+/// The defect this file was written for: `'unsafe-inline'` covers inline `<style>`, never an
+/// external stylesheet, so the webfont was blocked. Origins are derived from the shell so that
+/// a new external stylesheet fails here rather than in a browser.
 #[tokio::test]
 async fn csp_style_src_permits_every_external_stylesheet_the_shell_loads() {
     let app = spawn_app().await;
@@ -77,10 +71,9 @@ async fn csp_style_src_permits_every_external_stylesheet_the_shell_loads() {
     }
 }
 
-/// `fonts.googleapis.com` serves only CSS; the woff2 files it points at come from
-/// `fonts.gstatic.com`, which appears nowhere in the shell's markup. That indirection is
-/// exactly why the font origin was missed: nothing in the HTML names it, so font-src has to
-/// be asserted explicitly.
+/// `fonts.gstatic.com` serves the woff2 files but appears nowhere in the markup — only in the
+/// CSS `fonts.googleapis.com` returns. That indirection is why it was missed, and why this
+/// origin is asserted explicitly instead of derived.
 #[tokio::test]
 async fn csp_font_src_permits_the_google_fonts_file_origin() {
     let app = spawn_app().await;
@@ -126,10 +119,8 @@ fn external_stylesheet_origins(html: &str) -> Vec<String> {
     origins
 }
 
-/// Every page under /admin renders data belonging to one signed-in session. A bare 200 carries
-/// no freshness information and RFC 9111 lets a cache invent one, so without an explicit
-/// directive a browser may write these pages to its disk cache and re-serve them from session
-/// history after logout.
+/// A bare 200 is heuristically cacheable under RFC 9111, so without an explicit directive a
+/// browser could re-serve these session-private pages from history after logout.
 #[tokio::test]
 async fn admin_pages_are_never_written_to_a_cache() {
     let app = spawn_app().await;

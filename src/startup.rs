@@ -90,24 +90,16 @@ fn create_security_headers(tls_enabled: bool) -> middleware::DefaultHeaders {
         .add(("X-Content-Type-Options", "nosniff"))
         .add(("Referrer-Policy", "strict-origin-when-cross-origin"))
         .add(("X-XSS-Protection", "1; mode=block"))
-        // script-src carries no 'unsafe-inline'. The Vite build emits a single external
-        // module bundle, and nothing here renders an inline handler or a javascript: URL,
-        // so there is no inline script to allow — which makes the directive worth what it
-        // costs: an injected <script> cannot execute. The JSON-LD in home/mod.rs is not an
-        // exception. A <script type="application/ld+json"> is a data block: HTML's "prepare
-        // the script element" steps bail out before the CSP check because the type is not a
-        // JavaScript MIME type, so script-src never applies to it.
+        // No 'unsafe-inline' in script-src: the build emits one external bundle and nothing
+        // renders an inline handler. The JSON-LD in home/mod.rs is exempt — a data block's
+        // type is not a JavaScript MIME type, so script-src never applies to it.
         //
-        // style-src keeps 'unsafe-inline' because it has to. MUI v6 runs on Emotion, which
-        // injects rules through <style> elements at runtime; without it the SPA renders
-        // unstyled. Replacing it needs a nonce threaded through Emotion's cache, not a
-        // one-line edit here.
+        // style-src must keep it: Emotion (MUI v6) injects <style> elements at runtime, and
+        // dropping it needs a nonce threaded through Emotion's cache.
         //
-        // The two font hosts are what ui/index.html actually loads Roboto from. They are
-        // listed explicitly because 'unsafe-inline' does not cover *external* stylesheets
-        // and 'self' does not cover another origin: with style-src/font-src limited to
-        // 'self', the browser blocked the Google Fonts stylesheet and its woff2 files and
-        // the page silently fell back to a system font.
+        // The font origins are listed because 'unsafe-inline' does not cover *external*
+        // stylesheets. With both directives limited to 'self' the Google Fonts stylesheet and
+        // its woff2 files were blocked, and the page fell back to a system font.
         .add((
             "Content-Security-Policy",
             "default-src 'self'; \
@@ -186,13 +178,9 @@ async fn run(
             .service(
                 web::scope("/admin")
                     .wrap(from_fn(reject_anonymous_users))
-                    // Everything under /admin renders data belonging to one signed-in
-                    // session — the contact list, the account's own username. A bare 200
-                    // carries no freshness information, and RFC 9111 lets a cache invent
-                    // one for exactly that case, so a browser may write these pages to its
-                    // disk cache and re-serve them from session history after logout, on a
-                    // machine the next person walks up to. no-store forbids writing them
-                    // down at all.
+                    // /admin renders one session's private data. A bare 200 is
+                    // heuristically cacheable under RFC 9111, so a browser could re-serve
+                    // the contact list from history after logout.
                     .wrap(middleware::DefaultHeaders::new().add(("Cache-Control", "no-store")))
                     .route("/dashboard", web::get().to(admin_dashboard))
                     .route("/contacts", web::get().to(admin_contacts))
