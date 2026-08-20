@@ -1,6 +1,6 @@
 FROM lukemathwalker/cargo-chef:latest-rust-1.97-trixie AS chef
 WORKDIR /app
-RUN apt update && apt install lld clang nodejs npm -y
+RUN apt update && apt install lld clang curl -y && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt install -y nodejs
 
 FROM chef AS planner
 COPY . .
