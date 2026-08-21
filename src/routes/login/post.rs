@@ -37,7 +37,7 @@ pub async fn login(
     form: web::Form<FormData>,
     pool: web::Data<PgPool>,
     session: TypedSession,
-) -> Result<HttpResponse, InternalError<LoginError>> {
+) -> Result<HttpResponse, actix_web::Error> {
     let credentials = Credentials {
         username: form.0.username,
         password: form.0.password,
@@ -63,10 +63,14 @@ pub async fn login(
     }
 }
 
-fn login_redirect(e: LoginError) -> InternalError<LoginError> {
+// Returns actix_web::Error (a pointer-sized Box<dyn ResponseError>) rather than
+// InternalError<LoginError> directly: the latter stores a whole HttpResponse inline,
+// which made every Ok path of `login` carry a 136-byte Err variant. Boxing LoginError
+// would not help — it is two words; the HttpResponse is the bulk.
+fn login_redirect(e: LoginError) -> actix_web::Error {
     FlashMessage::error(e.to_string()).send();
 
     let response = see_other("/login");
 
-    InternalError::from_response(e, response)
+    InternalError::from_response(e, response).into()
 }
