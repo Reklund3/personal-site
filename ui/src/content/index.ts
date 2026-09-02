@@ -140,6 +140,26 @@ export const CONTENT: SiteContent = {
           { name: 'Go' },
         ],
       },
+      {
+        // Its own category rather than entries in "Other Tools", which is where
+        // Miro and Jira live. These are the working environment, not incidental
+        // tooling around it, and the site is being pointed at writing about
+        // agentic development — burying the claim next to a whiteboard app
+        // undercuts it. Placed second so it reads near the languages.
+        //
+        // Membership is the same layer test the groups below use: it drives an
+        // LLM agent that edits the repo. That excludes inline completion and
+        // chat sidecars, which is why Cursor and the JetBrains assistants named
+        // in the About copy are not listed here.
+        label: 'Agentic Development',
+        items: [
+          { name: 'Orca' },
+          { name: 'Claude Code' },
+          // Lowercase is the project's own styling, not a typo.
+          { name: 'opencode' },
+          { name: 'Antigravity CLI' },
+        ],
+      },
       // The three groups below replace a "Cloud & Infrastructure" / "DevOps &
       // CI/CD" pair that could not be cleanly divided: cut on topic, both labels
       // described the same lifecycle, so tools that package AND deploy had a
