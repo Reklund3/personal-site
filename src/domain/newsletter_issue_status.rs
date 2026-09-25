@@ -12,14 +12,3 @@ pub enum NewsletterIssueStatus {
     Sent,
     Failed,
 }
-
-impl NewsletterIssueStatus {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Draft => "draft",
-            Self::Queued => "queued",
-            Self::Sent => "sent",
-            Self::Failed => "failed",
-        }
-    }
-}

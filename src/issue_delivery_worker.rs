@@ -53,55 +53,54 @@ pub async fn try_execute_task(
 
     // Enqueue only sets status to `queued`. We flip to `sent` once delivery work
     // for the issue is fully done (queue empty). Permanent failure (`failed`):
-    // the issue row is missing/unreadable when a queue task runs — remaining
-    // queue rows for that issue are dropped. Per-subscriber email API errors are
-    // logged and skipped (task removed); they do not mark the issue `failed`.
+    // the issue row is missing when a queue task runs — remaining queue rows for
+    // that issue are dropped. Transient DB errors from get_issue propagate so
+    // the worker_loop retries. Per-subscriber email API errors are logged and
+    // skipped (task removed); they do not mark the issue `failed`.
     // Transient send retries / backoff are tracked in issue #32.
-    let issue = match get_issue(pool, issue_id).await {
-        Ok(issue) => issue,
-        Err(e) => {
+    match get_issue(pool, issue_id).await? {
+        Some(issue) => {
+            match UserEmail::parse(email.clone()) {
+                Ok(email) => {
+                    if let Err(e) = email_client
+                        .send_email(
+                            &email,
+                            &issue.title,
+                            &issue.html_content,
+                            &issue.text_content,
+                        )
+                        .await
+                    {
+                        tracing::error!(
+                            error.cause_chain = ?e,
+                            error.message = %e,
+                            "Failed to deliver issue to a confirmed subscriber. \
+                                Skipping.",
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error.cause_chain = ?e,
+                        error.message = %e,
+                        "Skipping a confirmed subscriber. \
+                            Their stored contact details are invalid",
+                    );
+                }
+            }
+            delete_task(transaction, issue_id, &email).await?;
+            Ok(ExecutionOutcome::TaskCompleted)
+        }
+        None => {
             tracing::error!(
-                error.cause_chain = ?e,
-                error.message = %e,
                 %issue_id,
-                "Newsletter issue content unavailable; marking issue failed \
+                "Newsletter issue row missing; marking issue failed \
                  and draining its delivery queue.",
             );
             mark_issue_failed_and_drain(transaction, issue_id).await?;
-            return Ok(ExecutionOutcome::TaskCompleted);
-        }
-    };
-
-    match UserEmail::parse(email.clone()) {
-        Ok(email) => {
-            if let Err(e) = email_client
-                .send_email(
-                    &email,
-                    &issue.title,
-                    &issue.html_content,
-                    &issue.text_content,
-                )
-                .await
-            {
-                tracing::error!(
-                    error.cause_chain = ?e,
-                    error.message = %e,
-                    "Failed to deliver issue to a confirmed subscriber. \
-                        Skipping.",
-                );
-            }
-        }
-        Err(e) => {
-            tracing::error!(
-                error.cause_chain = ?e,
-                error.message = %e,
-                "Skipping a confirmed subscriber. \
-                    Their stored contact details are invalid",
-            );
+            Ok(ExecutionOutcome::TaskCompleted)
         }
     }
-    delete_task(transaction, issue_id, &email).await?;
-    Ok(ExecutionOutcome::TaskCompleted)
 }
 
 type PgTransaction = Transaction<'static, Postgres>;
@@ -150,6 +149,19 @@ async fn delete_task(
         email
     )
     .execute(&mut *transaction)
+    .await?;
+    // Serialize concurrent workers on the issue row before the emptiness check
+    // so two last-row DELETEs cannot both observe NOT EXISTS as false.
+    sqlx::query!(
+        r#"
+        SELECT newsletter_issue_id
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        FOR UPDATE
+        "#,
+        issue_id
+    )
+    .fetch_optional(&mut *transaction)
     .await?;
     // When the last queue row for a queued issue is gone, delivery is complete.
     sqlx::query!(
@@ -210,7 +222,10 @@ struct NewsletterIssue {
 }
 
 #[tracing::instrument(skip_all)]
-async fn get_issue(pool: &PgPool, issue_id: Uuid) -> Result<NewsletterIssue, anyhow::Error> {
+async fn get_issue(
+    pool: &PgPool,
+    issue_id: Uuid,
+) -> Result<Option<NewsletterIssue>, anyhow::Error> {
     let issue = sqlx::query_as!(
         NewsletterIssue,
         r#"
@@ -221,7 +236,7 @@ async fn get_issue(pool: &PgPool, issue_id: Uuid) -> Result<NewsletterIssue, any
         "#,
         issue_id
     )
-    .fetch_one(pool)
+    .fetch_optional(pool)
     .await?;
     Ok(issue)
 }

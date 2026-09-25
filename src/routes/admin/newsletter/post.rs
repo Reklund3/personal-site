@@ -72,7 +72,10 @@ pub async fn publish_newsletter(
     {
         NextAction::StartProcessing(t) => t,
         NextAction::ReturnSavedResponse(saved_response) => {
-            success_message().send();
+            // Re-derive flash from issue status on idempotent replay when the
+            // form targeted an existing issue; new publishes always completed
+            // as a successful accept on first processing.
+            flash_for_idempotent_replay(&pool, existing_issue_id).await;
             return Ok(saved_response);
         }
     };
@@ -96,6 +99,32 @@ pub async fn publish_newsletter(
         QueueOutcome::AlreadyHandled { .. } => already_handled_message().send(),
     }
     Ok(response)
+}
+
+/// Prefer already-handled when replaying an accept of an existing issue that is
+/// no longer a draft; otherwise keep the historical success flash for new
+/// publishes (and rare draft-still-draft replays).
+async fn flash_for_idempotent_replay(pool: &PgPool, existing_issue_id: Option<Uuid>) {
+    let Some(issue_id) = existing_issue_id else {
+        success_message().send();
+        return;
+    };
+    let status = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    match status {
+        Some(NewsletterIssueStatus::Draft) | None => success_message().send(),
+        Some(_) => already_handled_message().send(),
+    }
 }
 
 #[tracing::instrument(skip_all)]
@@ -129,6 +158,8 @@ async fn insert_newsletter_issue(
 
 /// Accept a draft issue for delivery: `draft` → `queued` and enqueue subscriber tasks
 /// in the same transaction. Non-draft statuses are left untouched (no second blast).
+/// If there are no confirmed subscribers, flip `queued` → `sent` immediately so the
+/// issue does not remain stuck with an empty delivery queue.
 #[tracing::instrument(skip_all)]
 pub async fn queue_issue_for_delivery(
     transaction: &mut Transaction<'_, Postgres>,
@@ -164,6 +195,23 @@ pub async fn queue_issue_for_delivery(
             .execute(&mut **transaction)
             .await?;
             enqueue_delivery_tasks(transaction, newsletter_issue_id).await?;
+            // Same NOT EXISTS predicate as delete_task: empty queue ⇒ sent.
+            sqlx::query!(
+                r#"
+                UPDATE newsletter.newsletter_issues
+                SET status = 'sent'
+                WHERE newsletter_issue_id = $1
+                  AND status = 'queued'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM newsletter.issue_delivery_queue
+                      WHERE newsletter_issue_id = $1
+                  )
+                "#,
+                newsletter_issue_id
+            )
+            .execute(&mut **transaction)
+            .await?;
             Ok(QueueOutcome::Queued)
         }
         NewsletterIssueStatus::Queued
