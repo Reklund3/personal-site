@@ -458,7 +458,6 @@ async fn publish_of_already_handled_issue_flashes_and_does_not_enqueue() {
     assert_eq!(queued, Some(0));
 }
 
-
 #[tokio::test]
 async fn idempotent_replay_of_already_handled_issue_keeps_already_handled_flash() {
     let test_app = spawn_app().await;
