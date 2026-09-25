@@ -50,9 +50,30 @@ pub async fn try_execute_task(
     Span::current()
         .record("newsletter_issue_id", display(issue_id))
         .record("subscriber_email", display(&email));
+
+    // Enqueue only sets status to `queued`. We flip to `sent` once delivery work
+    // for the issue is fully done (queue empty). Permanent failure (`failed`):
+    // the issue row is missing/unreadable when a queue task runs — remaining
+    // queue rows for that issue are dropped. Per-subscriber email API errors are
+    // logged and skipped (task removed); they do not mark the issue `failed`.
+    // Transient send retries / backoff are tracked in issue #32.
+    let issue = match get_issue(pool, issue_id).await {
+        Ok(issue) => issue,
+        Err(e) => {
+            tracing::error!(
+                error.cause_chain = ?e,
+                error.message = %e,
+                %issue_id,
+                "Newsletter issue content unavailable; marking issue failed \
+                 and draining its delivery queue.",
+            );
+            mark_issue_failed_and_drain(transaction, issue_id).await?;
+            return Ok(ExecutionOutcome::TaskCompleted);
+        }
+    };
+
     match UserEmail::parse(email.clone()) {
         Ok(email) => {
-            let issue = get_issue(pool, issue_id).await?;
             if let Err(e) = email_client
                 .send_email(
                     &email,
@@ -127,6 +148,54 @@ async fn delete_task(
         "#,
         issue_id,
         email
+    )
+    .execute(&mut *transaction)
+    .await?;
+    // When the last queue row for a queued issue is gone, delivery is complete.
+    sqlx::query!(
+        r#"
+        UPDATE newsletter.newsletter_issues
+        SET status = 'sent'
+        WHERE newsletter_issue_id = $1
+          AND status = 'queued'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM newsletter.issue_delivery_queue
+              WHERE newsletter_issue_id = $1
+          )
+        "#,
+        issue_id
+    )
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+/// Permanent-failure path: issue content cannot be loaded. Mark `failed` and
+/// drop any remaining delivery rows so the worker does not spin forever.
+#[tracing::instrument(skip_all)]
+async fn mark_issue_failed_and_drain(
+    mut transaction: PgTransaction,
+    issue_id: Uuid,
+) -> Result<(), anyhow::Error> {
+    sqlx::query!(
+        r#"
+        UPDATE newsletter.newsletter_issues
+        SET status = 'failed'
+        WHERE newsletter_issue_id = $1
+          AND status = 'queued'
+        "#,
+        issue_id,
+    )
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query!(
+        r#"
+        DELETE FROM newsletter.issue_delivery_queue
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
     )
     .execute(&mut *transaction)
     .await?;
