@@ -1,3 +1,5 @@
+-- Add migration script here
+
 -- Track newsletter issue lifecycle separately from idempotency keys.
 -- Idempotency remains forever (book-style); this enum is the source of truth
 -- for whether an issue may still be enqueued for delivery.
