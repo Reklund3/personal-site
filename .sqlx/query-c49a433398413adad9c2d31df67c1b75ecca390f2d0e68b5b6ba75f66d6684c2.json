@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SET session_replication_role = 'origin'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "c49a433398413adad9c2d31df67c1b75ecca390f2d0e68b5b6ba75f66d6684c2"
+}

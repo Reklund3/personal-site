@@ -53,8 +53,6 @@ async fn subscribe_returns_a_400_when_fields_are_present_but_invalid() {
 
     for (invalid_body, error_message) in test_cases {
         let response = test_app.post_subscriptions(invalid_body.into()).await;
-        // once the test completes we can stop the server
-        test_app.handle.abort();
 
         assert_eq!(
             response.status().as_u16(),
@@ -63,6 +61,8 @@ async fn subscribe_returns_a_400_when_fields_are_present_but_invalid() {
             error_message
         );
     }
+    // once the test completes we can stop the server
+    test_app.handle.abort();
 }
 
 #[tokio::test]
@@ -126,8 +126,6 @@ async fn subscribe_returns_a_400_when_data_is_missing() {
 
     for (invalid_body, error_message) in test_cases {
         let response = test_app.post_subscriptions(invalid_body.into()).await;
-        // once the test completes we can stop the server
-        test_app.handle.abort();
 
         assert_eq!(
             response.status().as_u16(),
@@ -136,6 +134,8 @@ async fn subscribe_returns_a_400_when_data_is_missing() {
             error_message
         );
     }
+    // once the test completes we can stop the server
+    test_app.handle.abort();
 }
 
 #[tokio::test]

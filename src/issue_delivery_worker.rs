@@ -50,37 +50,64 @@ pub async fn try_execute_task(
     Span::current()
         .record("newsletter_issue_id", display(issue_id))
         .record("subscriber_email", display(&email));
-    match UserEmail::parse(email.clone()) {
-        Ok(email) => {
-            let issue = get_issue(pool, issue_id).await?;
-            if let Err(e) = email_client
-                .send_email(
-                    &email,
-                    &issue.title,
-                    &issue.html_content,
-                    &issue.text_content,
-                )
-                .await
-            {
-                tracing::error!(
-                    error.cause_chain = ?e,
-                    error.message = %e,
-                    "Failed to deliver issue to a confirmed subscriber. \
-                        Skipping.",
-                );
+
+    // Enqueue only sets status to `queued`. We flip to `sent` once delivery work
+    // for the issue is fully done (queue empty). The `None` branch below is a
+    // defensive no-op, reached only if the issue row is already gone by the
+    // time a queue task for it runs — a state the delivery queue's foreign key
+    // should prevent via normal application code. Since get_issue just proved
+    // the row doesn't exist, mark_issue_failed_and_drain's `UPDATE ... SET
+    // status = 'failed'` is guaranteed to affect zero rows: you can't mark
+    // failed a row just proven not to exist. What that call actually does is
+    // drain the now-orphaned delivery queue rows for that issue id so the
+    // worker doesn't spin on them forever. Transient DB errors from get_issue
+    // propagate so the worker_loop retries. Per-subscriber email API errors
+    // are logged and skipped (task removed); they do not mark the issue
+    // `failed`.
+    // Transient send retries / backoff are tracked in issue #32.
+    match get_issue(pool, issue_id).await? {
+        Some(issue) => {
+            match UserEmail::parse(email.clone()) {
+                Ok(email) => {
+                    if let Err(e) = email_client
+                        .send_email(
+                            &email,
+                            &issue.title,
+                            &issue.html_content,
+                            &issue.text_content,
+                        )
+                        .await
+                    {
+                        tracing::error!(
+                            error.cause_chain = ?e,
+                            error.message = %e,
+                            "Failed to deliver issue to a confirmed subscriber. \
+                                Skipping.",
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        error.cause_chain = ?e,
+                        error.message = %e,
+                        "Skipping a confirmed subscriber. \
+                            Their stored contact details are invalid",
+                    );
+                }
             }
+            delete_task(transaction, issue_id, &email).await?;
+            Ok(ExecutionOutcome::TaskCompleted)
         }
-        Err(e) => {
+        None => {
             tracing::error!(
-                error.cause_chain = ?e,
-                error.message = %e,
-                "Skipping a confirmed subscriber. \
-                    Their stored contact details are invalid",
+                %issue_id,
+                "Newsletter issue row missing (should be prevented by a \
+                 foreign key); draining its now-orphaned delivery queue rows.",
             );
+            mark_issue_failed_and_drain(transaction, issue_id).await?;
+            Ok(ExecutionOutcome::TaskCompleted)
         }
     }
-    delete_task(transaction, issue_id, &email).await?;
-    Ok(ExecutionOutcome::TaskCompleted)
 }
 
 type PgTransaction = Transaction<'static, Postgres>;
@@ -130,6 +157,72 @@ async fn delete_task(
     )
     .execute(&mut *transaction)
     .await?;
+    // Serialize concurrent workers on the issue row before the emptiness check
+    // so two last-row DELETEs cannot both observe NOT EXISTS as false.
+    sqlx::query!(
+        r#"
+        SELECT newsletter_issue_id
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        FOR UPDATE
+        "#,
+        issue_id
+    )
+    .fetch_optional(&mut *transaction)
+    .await?;
+    // When the last queue row for a queued issue is gone, delivery is complete.
+    sqlx::query!(
+        r#"
+        UPDATE newsletter.newsletter_issues
+        SET status = 'sent'
+        WHERE newsletter_issue_id = $1
+          AND status = 'queued'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM newsletter.issue_delivery_queue
+              WHERE newsletter_issue_id = $1
+          )
+        "#,
+        issue_id
+    )
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+/// Defensive no-op path, reached only if the issue row is already gone by the
+/// time a queue task for it runs — a state the delivery queue's foreign key
+/// should prevent via normal application code. The `status = 'failed'` UPDATE
+/// is guaranteed to affect zero rows, since the caller's `get_issue` call
+/// already proved the row doesn't exist. What this function actually
+/// accomplishes is dropping the remaining, now-orphaned delivery queue rows
+/// for that issue id so the worker does not spin on them forever.
+#[tracing::instrument(skip_all)]
+async fn mark_issue_failed_and_drain(
+    mut transaction: PgTransaction,
+    issue_id: Uuid,
+) -> Result<(), anyhow::Error> {
+    sqlx::query!(
+        r#"
+        UPDATE newsletter.newsletter_issues
+        SET status = 'failed'
+        WHERE newsletter_issue_id = $1
+          AND status = 'queued'
+        "#,
+        issue_id,
+    )
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query!(
+        r#"
+        DELETE FROM newsletter.issue_delivery_queue
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .execute(&mut *transaction)
+    .await?;
     transaction.commit().await?;
     Ok(())
 }
@@ -141,7 +234,10 @@ struct NewsletterIssue {
 }
 
 #[tracing::instrument(skip_all)]
-async fn get_issue(pool: &PgPool, issue_id: Uuid) -> Result<NewsletterIssue, anyhow::Error> {
+async fn get_issue(
+    pool: &PgPool,
+    issue_id: Uuid,
+) -> Result<Option<NewsletterIssue>, anyhow::Error> {
     let issue = sqlx::query_as!(
         NewsletterIssue,
         r#"
@@ -152,7 +248,7 @@ async fn get_issue(pool: &PgPool, issue_id: Uuid) -> Result<NewsletterIssue, any
         "#,
         issue_id
     )
-    .fetch_one(pool)
+    .fetch_optional(pool)
     .await?;
     Ok(issue)
 }

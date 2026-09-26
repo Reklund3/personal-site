@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT status as \"status: site::domain::NewsletterIssueStatus\"\n        FROM newsletter.newsletter_issues\n        ORDER BY published_at DESC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status: site::domain::NewsletterIssueStatus",
+        "type_info": {
+          "Custom": {
+            "name": "newsletter.newsletter_issue_status",
+            "kind": {
+              "Enum": [
+                "draft",
+                "queued",
+                "sent",
+                "failed"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "82ecd86c3ce47f7dd2f2a845cfcde6a2662c56b19ab0bdabbb4c3db46a3e5d9e"
+}

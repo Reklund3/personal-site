@@ -1,4 +1,5 @@
 use crate::authentication::UserId;
+use crate::domain::NewsletterIssueStatus;
 use crate::idempotency::{IdempotencyKey, NextAction, save_response, try_processing};
 use crate::utils::e400;
 use crate::utils::{e500, see_other};
@@ -14,6 +15,10 @@ pub struct FormData {
     text_content: String,
     html_content: String,
     idempotency_key: String,
+    /// Optional existing draft to accept. When set, content fields are ignored
+    /// and we only attempt `draft` → `queued` + enqueue (no draft-editing UI yet).
+    #[serde(default)]
+    newsletter_issue_id: Option<String>,
 }
 
 fn success_message() -> FlashMessage {
@@ -21,6 +26,21 @@ fn success_message() -> FlashMessage {
         "The newsletter issue has been accepted - \
         emails will go out shortly.",
     )
+}
+
+fn already_handled_message() -> FlashMessage {
+    FlashMessage::info(
+        "This newsletter issue has already been handled \
+        (queued, sent, or failed).",
+    )
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum QueueOutcome {
+    /// Transitioned `draft` → `queued` and enqueued delivery rows.
+    Queued,
+    /// Issue exists but is already `queued` / `sent` / `failed` — do not enqueue again.
+    AlreadyHandled { status: NewsletterIssueStatus },
 }
 
 #[tracing::instrument(
@@ -39,32 +59,89 @@ pub async fn publish_newsletter(
         text_content,
         html_content,
         idempotency_key,
+        newsletter_issue_id,
     } = form.0;
     let idempotency_key: IdempotencyKey = idempotency_key.try_into().map_err(e400)?;
+    let existing_issue_id = match newsletter_issue_id.as_deref() {
+        None | Some("") => None,
+        Some(raw) => Some(Uuid::parse_str(raw).map_err(e400)?),
+    };
     let mut transaction = match try_processing(&pool, &idempotency_key, *user_id)
         .await
         .map_err(e500)?
     {
         NextAction::StartProcessing(t) => t,
         NextAction::ReturnSavedResponse(saved_response) => {
-            success_message().send();
+            // Re-derive flash from issue status on idempotent replay when the
+            // form targeted an existing issue; new publishes always completed
+            // as a successful accept on first processing.
+            flash_for_idempotent_replay(&pool, existing_issue_id).await?;
             return Ok(saved_response);
         }
     };
-    let issue_id = insert_newsletter_issue(&mut transaction, &title, &text_content, &html_content)
-        .await
-        .context("Failed to store newsletter issue details")
-        .map_err(e500)?;
-    enqueue_delivery_tasks(&mut transaction, issue_id)
-        .await
-        .context("Failed to enqueue delivery tasks")
-        .map_err(e500)?;
+    let issue_id = match existing_issue_id {
+        Some(id) => id,
+        None => insert_newsletter_issue(&mut transaction, &title, &text_content, &html_content)
+            .await
+            .context("Failed to store newsletter issue details")
+            .map_err(e500)?,
+    };
+    let outcome = match queue_issue_for_delivery(&mut transaction, issue_id).await {
+        Ok(outcome) => outcome,
+        Err(sqlx::Error::RowNotFound) => {
+            return Err(e400("The requested newsletter issue does not exist."));
+        }
+        Err(e) => {
+            return Err(e500(
+                anyhow::Error::new(e).context("Failed to queue newsletter issue for delivery"),
+            ));
+        }
+    };
     let response = see_other("/admin/newsletters");
     let response = save_response(transaction, &idempotency_key, *user_id, response)
         .await
         .map_err(e500)?;
-    success_message().send();
+    match outcome {
+        QueueOutcome::Queued => success_message().send(),
+        QueueOutcome::AlreadyHandled { .. } => already_handled_message().send(),
+    }
     Ok(response)
+}
+
+/// Prefer already-handled when replaying an accept of an existing issue that is
+/// no longer a draft; otherwise keep the historical success flash for new
+/// publishes (and rare draft-still-draft replays).
+async fn flash_for_idempotent_replay(
+    pool: &PgPool,
+    existing_issue_id: Option<Uuid>,
+) -> Result<(), actix_web::Error> {
+    let Some(issue_id) = existing_issue_id else {
+        success_message().send();
+        return Ok(());
+    };
+    let status = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_optional(pool)
+    .await;
+    match status {
+        Ok(Some(NewsletterIssueStatus::Draft)) | Ok(None) => success_message().send(),
+        Ok(Some(_)) => already_handled_message().send(),
+        Err(e) => {
+            tracing::error!(
+                error.cause_chain = ?e,
+                error.message = %e,
+                "Failed to look up newsletter issue status for idempotent replay flash"
+            );
+            return Err(e500(e));
+        }
+    }
+    Ok(())
 }
 
 #[tracing::instrument(skip_all)]
@@ -82,9 +159,10 @@ async fn insert_newsletter_issue(
             title,
             text_content,
             html_content,
-            published_at
+            published_at,
+            status
         )
-        VALUES ($1, $2, $3, $4, now())
+        VALUES ($1, $2, $3, $4, now(), 'draft')
         "#,
         newsletter_issue_id,
         title,
@@ -93,6 +171,70 @@ async fn insert_newsletter_issue(
     );
     transaction.execute(query).await?;
     Ok(newsletter_issue_id)
+}
+
+/// Accept a draft issue for delivery: `draft` → `queued` and enqueue subscriber tasks
+/// in the same transaction. Non-draft statuses are left untouched (no second blast).
+/// If there are no confirmed subscribers, flip `queued` → `sent` immediately so the
+/// issue does not remain stuck with an empty delivery queue.
+#[tracing::instrument(skip_all)]
+pub async fn queue_issue_for_delivery(
+    transaction: &mut Transaction<'_, Postgres>,
+    newsletter_issue_id: Uuid,
+) -> Result<QueueOutcome, sqlx::Error> {
+    let status = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        FOR UPDATE
+        "#,
+        newsletter_issue_id
+    )
+    .fetch_optional(&mut **transaction)
+    .await?;
+
+    let Some(status) = status else {
+        return Err(sqlx::Error::RowNotFound);
+    };
+
+    match status {
+        NewsletterIssueStatus::Draft => {
+            sqlx::query!(
+                r#"
+                UPDATE newsletter.newsletter_issues
+                SET status = 'queued'
+                WHERE newsletter_issue_id = $1
+                  AND status = 'draft'
+                "#,
+                newsletter_issue_id
+            )
+            .execute(&mut **transaction)
+            .await?;
+            enqueue_delivery_tasks(transaction, newsletter_issue_id).await?;
+            // Same NOT EXISTS predicate as delete_task: empty queue ⇒ sent.
+            sqlx::query!(
+                r#"
+                UPDATE newsletter.newsletter_issues
+                SET status = 'sent'
+                WHERE newsletter_issue_id = $1
+                  AND status = 'queued'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM newsletter.issue_delivery_queue
+                      WHERE newsletter_issue_id = $1
+                  )
+                "#,
+                newsletter_issue_id
+            )
+            .execute(&mut **transaction)
+            .await?;
+            Ok(QueueOutcome::Queued)
+        }
+        NewsletterIssueStatus::Queued
+        | NewsletterIssueStatus::Sent
+        | NewsletterIssueStatus::Failed => Ok(QueueOutcome::AlreadyHandled { status }),
+    }
 }
 
 #[tracing::instrument(skip_all)]
