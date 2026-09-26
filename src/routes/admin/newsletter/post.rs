@@ -75,7 +75,7 @@ pub async fn publish_newsletter(
             // Re-derive flash from issue status on idempotent replay when the
             // form targeted an existing issue; new publishes always completed
             // as a successful accept on first processing.
-            flash_for_idempotent_replay(&pool, existing_issue_id).await;
+            flash_for_idempotent_replay(&pool, existing_issue_id).await?;
             return Ok(saved_response);
         }
     };
@@ -86,10 +86,17 @@ pub async fn publish_newsletter(
             .context("Failed to store newsletter issue details")
             .map_err(e500)?,
     };
-    let outcome = queue_issue_for_delivery(&mut transaction, issue_id)
-        .await
-        .context("Failed to queue newsletter issue for delivery")
-        .map_err(e500)?;
+    let outcome = match queue_issue_for_delivery(&mut transaction, issue_id).await {
+        Ok(outcome) => outcome,
+        Err(sqlx::Error::RowNotFound) => {
+            return Err(e400("The requested newsletter issue does not exist."));
+        }
+        Err(e) => {
+            return Err(e500(
+                anyhow::Error::new(e).context("Failed to queue newsletter issue for delivery"),
+            ));
+        }
+    };
     let response = see_other("/admin/newsletters");
     let response = save_response(transaction, &idempotency_key, *user_id, response)
         .await
@@ -104,10 +111,13 @@ pub async fn publish_newsletter(
 /// Prefer already-handled when replaying an accept of an existing issue that is
 /// no longer a draft; otherwise keep the historical success flash for new
 /// publishes (and rare draft-still-draft replays).
-async fn flash_for_idempotent_replay(pool: &PgPool, existing_issue_id: Option<Uuid>) {
+async fn flash_for_idempotent_replay(
+    pool: &PgPool,
+    existing_issue_id: Option<Uuid>,
+) -> Result<(), actix_web::Error> {
     let Some(issue_id) = existing_issue_id else {
         success_message().send();
-        return;
+        return Ok(());
     };
     let status = sqlx::query_scalar!(
         r#"
@@ -118,13 +128,20 @@ async fn flash_for_idempotent_replay(pool: &PgPool, existing_issue_id: Option<Uu
         issue_id
     )
     .fetch_optional(pool)
-    .await
-    .ok()
-    .flatten();
+    .await;
     match status {
-        Some(NewsletterIssueStatus::Draft) | None => success_message().send(),
-        Some(_) => already_handled_message().send(),
+        Ok(Some(NewsletterIssueStatus::Draft)) | Ok(None) => success_message().send(),
+        Ok(Some(_)) => already_handled_message().send(),
+        Err(e) => {
+            tracing::error!(
+                error.cause_chain = ?e,
+                error.message = %e,
+                "Failed to look up newsletter issue status for idempotent replay flash"
+            );
+            return Err(e500(e));
+        }
     }
+    Ok(())
 }
 
 #[tracing::instrument(skip_all)]

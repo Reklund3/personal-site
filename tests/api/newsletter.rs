@@ -814,3 +814,165 @@ async fn http_accept_of_existing_draft_via_newsletter_issue_id() {
     .unwrap();
     assert_eq!(status, site::domain::NewsletterIssueStatus::Sent);
 }
+
+#[tokio::test]
+async fn concurrent_task_completions_flip_issue_to_sent_exactly_once() {
+    let test_app = spawn_app().await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES ($1, 'Racing completions', 'text', '<p>html</p>', now(), 'queued')
+        "#,
+        issue_id
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    let email_one: String = SafeEmail().fake();
+    let email_two: String = SafeEmail().fake();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.issue_delivery_queue (
+            newsletter_issue_id,
+            subscriber_email
+        )
+        VALUES ($1, $2), ($1, $3)
+        "#,
+        issue_id,
+        email_one,
+        email_two
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(2)
+        .mount(&test_app.email_server)
+        .await;
+
+    let (first, second) = tokio::join!(
+        try_execute_task(&test_app.pg_pool, &test_app.email_client),
+        try_execute_task(&test_app.pg_pool, &test_app.email_client)
+    );
+    assert!(matches!(first.unwrap(), ExecutionOutcome::TaskCompleted));
+    assert!(matches!(second.unwrap(), ExecutionOutcome::TaskCompleted));
+
+    let status = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: site::domain::NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(status, site::domain::NewsletterIssueStatus::Sent);
+
+    let remaining = sqlx::query_scalar!(
+        r#"
+        SELECT COUNT(*)
+        FROM newsletter.issue_delivery_queue
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining, Some(0));
+}
+
+#[tokio::test]
+async fn concurrent_queue_issue_for_delivery_enqueues_exactly_once() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES ($1, 'Racing accepts', 'text', '<p>html</p>', now(), 'draft')
+        "#,
+        issue_id
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    let pool_one = test_app.pg_pool.clone();
+    let pool_two = test_app.pg_pool.clone();
+    let first = async move {
+        let mut tx = pool_one.begin().await.unwrap();
+        let outcome = site::routes::queue_issue_for_delivery(&mut tx, issue_id)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        outcome
+    };
+    let second = async move {
+        let mut tx = pool_two.begin().await.unwrap();
+        let outcome = site::routes::queue_issue_for_delivery(&mut tx, issue_id)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        outcome
+    };
+    let (first, second) = tokio::join!(first, second);
+
+    let outcomes = [first, second];
+    let queued_count = outcomes
+        .iter()
+        .filter(|o| **o == site::routes::QueueOutcome::Queued)
+        .count();
+    assert_eq!(queued_count, 1, "exactly one racer must queue the issue");
+    let already_handled_count = outcomes
+        .iter()
+        .filter(|o| {
+            matches!(
+                o,
+                site::routes::QueueOutcome::AlreadyHandled {
+                    status: site::domain::NewsletterIssueStatus::Queued
+                }
+            )
+        })
+        .count();
+    assert_eq!(
+        already_handled_count, 1,
+        "the other racer must see AlreadyHandled{{ status: Queued }}"
+    );
+
+    let queued = sqlx::query_scalar!(
+        r#"
+        SELECT COUNT(*)
+        FROM newsletter.issue_delivery_queue
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(queued, Some(1));
+}

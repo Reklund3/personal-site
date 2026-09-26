@@ -52,11 +52,18 @@ pub async fn try_execute_task(
         .record("subscriber_email", display(&email));
 
     // Enqueue only sets status to `queued`. We flip to `sent` once delivery work
-    // for the issue is fully done (queue empty). Permanent failure (`failed`):
-    // the issue row is missing when a queue task runs — remaining queue rows for
-    // that issue are dropped. Transient DB errors from get_issue propagate so
-    // the worker_loop retries. Per-subscriber email API errors are logged and
-    // skipped (task removed); they do not mark the issue `failed`.
+    // for the issue is fully done (queue empty). The `None` branch below is a
+    // defensive no-op, reached only if the issue row is already gone by the
+    // time a queue task for it runs — a state the delivery queue's foreign key
+    // should prevent via normal application code. Since get_issue just proved
+    // the row doesn't exist, mark_issue_failed_and_drain's `UPDATE ... SET
+    // status = 'failed'` is guaranteed to affect zero rows: you can't mark
+    // failed a row just proven not to exist. What that call actually does is
+    // drain the now-orphaned delivery queue rows for that issue id so the
+    // worker doesn't spin on them forever. Transient DB errors from get_issue
+    // propagate so the worker_loop retries. Per-subscriber email API errors
+    // are logged and skipped (task removed); they do not mark the issue
+    // `failed`.
     // Transient send retries / backoff are tracked in issue #32.
     match get_issue(pool, issue_id).await? {
         Some(issue) => {
@@ -94,8 +101,8 @@ pub async fn try_execute_task(
         None => {
             tracing::error!(
                 %issue_id,
-                "Newsletter issue row missing; marking issue failed \
-                 and draining its delivery queue.",
+                "Newsletter issue row missing (should be prevented by a \
+                 foreign key); draining its now-orphaned delivery queue rows.",
             );
             mark_issue_failed_and_drain(transaction, issue_id).await?;
             Ok(ExecutionOutcome::TaskCompleted)
@@ -184,8 +191,13 @@ async fn delete_task(
     Ok(())
 }
 
-/// Permanent-failure path: issue content cannot be loaded. Mark `failed` and
-/// drop any remaining delivery rows so the worker does not spin forever.
+/// Defensive no-op path, reached only if the issue row is already gone by the
+/// time a queue task for it runs — a state the delivery queue's foreign key
+/// should prevent via normal application code. The `status = 'failed'` UPDATE
+/// is guaranteed to affect zero rows, since the caller's `get_issue` call
+/// already proved the row doesn't exist. What this function actually
+/// accomplishes is dropping the remaining, now-orphaned delivery queue rows
+/// for that issue id so the worker does not spin on them forever.
 #[tracing::instrument(skip_all)]
 async fn mark_issue_failed_and_drain(
     mut transaction: PgTransaction,
