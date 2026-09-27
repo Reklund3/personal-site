@@ -75,7 +75,9 @@ pub async fn publish_newsletter(
             // Re-derive flash from issue status on idempotent replay when the
             // form targeted an existing issue; new publishes always completed
             // as a successful accept on first processing.
-            flash_for_idempotent_replay(&pool, existing_issue_id).await?;
+            // Flash derivation must never turn a successful idempotent replay
+            // into a 500 — the saved HTTP response is the source of truth.
+            flash_for_idempotent_replay(&pool, existing_issue_id).await;
             return Ok(saved_response);
         }
     };
@@ -111,13 +113,13 @@ pub async fn publish_newsletter(
 /// Prefer already-handled when replaying an accept of an existing issue that is
 /// no longer a draft; otherwise keep the historical success flash for new
 /// publishes (and rare draft-still-draft replays).
-async fn flash_for_idempotent_replay(
-    pool: &PgPool,
-    existing_issue_id: Option<Uuid>,
-) -> Result<(), actix_web::Error> {
+///
+/// Lookup errors are logged and degrade to a conservative flash — never to HTTP
+/// 500 — so a flash DB blip cannot fail an otherwise-committed idempotent replay.
+async fn flash_for_idempotent_replay(pool: &PgPool, existing_issue_id: Option<Uuid>) {
     let Some(issue_id) = existing_issue_id else {
         success_message().send();
-        return Ok(());
+        return;
     };
     let status = sqlx::query_scalar!(
         r#"
@@ -138,10 +140,12 @@ async fn flash_for_idempotent_replay(
                 error.message = %e,
                 "Failed to look up newsletter issue status for idempotent replay flash"
             );
-            return Err(e500(e));
+            // Conservative choice: already-handled (not success). On replay of an
+            // existing-issue accept we would rather under-promise delivery than
+            // claim emails are about to go out when we could not read status.
+            already_handled_message().send();
         }
     }
-    Ok(())
 }
 
 #[tracing::instrument(skip_all)]

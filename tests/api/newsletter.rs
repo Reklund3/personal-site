@@ -514,7 +514,7 @@ async fn idempotent_replay_of_already_handled_issue_keeps_already_handled_flash(
 }
 
 #[tokio::test]
-async fn missing_issue_marks_failed_and_drains_queue() {
+async fn missing_issue_drains_orphaned_delivery_queue() {
     let test_app = spawn_app().await;
     let issue_id = uuid::Uuid::new_v4();
     let subscriber_email: String = SafeEmail().fake();
@@ -583,7 +583,7 @@ async fn missing_issue_marks_failed_and_drains_queue() {
 
     let outcome = try_execute_task(&test_app.pg_pool, &test_app.email_client)
         .await
-        .expect("missing issue is a permanent failure, not a transient Err");
+        .expect("missing issue drains orphans as TaskCompleted, not a transient Err");
     assert!(matches!(outcome, ExecutionOutcome::TaskCompleted));
 
     let remaining = sqlx::query_scalar!(
@@ -895,6 +895,111 @@ async fn concurrent_task_completions_flip_issue_to_sent_exactly_once() {
     .await
     .unwrap();
     assert_eq!(remaining, Some(0));
+}
+
+#[tokio::test]
+async fn unknown_newsletter_issue_id_returns_400_and_rolls_back_idempotency() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    let unknown_id = uuid::Uuid::new_v4();
+    let idempotency_key = uuid::Uuid::new_v4().to_string();
+
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&test_app.email_server)
+        .await;
+
+    let newsletter_request_body = serde_json::json!({
+        "title": "ignored",
+        "text_content": "ignored",
+        "html_content": "<p>ignored</p>",
+        "idempotency_key": idempotency_key,
+        "newsletter_issue_id": unknown_id.to_string()
+    });
+    let response = test_app
+        .post_publish_newsletter(&newsletter_request_body)
+        .await;
+    assert_eq!(
+        response.status().as_u16(),
+        400,
+        "missing issue must be a client error, not a saved redirect"
+    );
+
+    let queued = sqlx::query_scalar!(
+        r#"
+        SELECT COUNT(*)
+        FROM newsletter.issue_delivery_queue
+        WHERE newsletter_issue_id = $1
+        "#,
+        unknown_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(queued, Some(0), "no delivery rows for a missing issue");
+
+    // App guarantee today: returning Err before save_response drops the
+    // try_processing transaction, so the idempotency INSERT rolls back and the
+    // same key can be used again (e.g. after correcting the issue id).
+    let draft_id = uuid::Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES ($1, 'Draft title', 'text', '<p>html</p>', now(), 'draft')
+        "#,
+        draft_id
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    // Same key after the 400 must start fresh processing (idempotency INSERT
+    // rolled back with the failed request), not hit "expected a saved response".
+    let retry_body = serde_json::json!({
+        "title": "ignored",
+        "text_content": "ignored",
+        "html_content": "<p>ignored</p>",
+        "idempotency_key": idempotency_key,
+        "newsletter_issue_id": draft_id.to_string()
+    });
+    let retry = test_app.post_publish_newsletter(&retry_body).await;
+    assert_is_redirect_to(&retry, "/admin/newsletters");
+
+    let status = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: site::domain::NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        draft_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(status, site::domain::NewsletterIssueStatus::Queued);
+
+    let queued_after = sqlx::query_scalar!(
+        r#"
+        SELECT COUNT(*)
+        FROM newsletter.issue_delivery_queue
+        WHERE newsletter_issue_id = $1
+        "#,
+        draft_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(queued_after, Some(1));
 }
 
 #[tokio::test]
