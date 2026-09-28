@@ -34,7 +34,7 @@ The configured container path unless modified uses `/run/secrets/` so that swarm
 
 ## NOTES
 + Invest time into `rust-musl-builder` to generate tiny containers.
++ Newsletter issues use a `draft|queued|sent|failed` status enum; `sent` means the delivery queue drained (attempts finished), not that every email succeeded. Idempotency keys stay forever (book-style). The `failed` value is reserved for future use.
 
 ## Improvements
-+ Newsletter issues use a `draft|queued|sent|failed` status enum; idempotency keys stay forever (book-style).
 + Enhance issue_delivery_queue to use retry count and exponential back off.

@@ -1016,6 +1016,9 @@ async fn http_accept_of_existing_draft_via_newsletter_issue_id() {
 
 #[tokio::test]
 async fn concurrent_task_completions_flip_issue_to_sent_exactly_once() {
+    // Deterministic lock proof for delete_task's FOR UPDATE: hold the issue
+    // lock in tx1 via mark_sent_if_drained, assert another connection gets
+    // lock_not_available (55P03) on FOR UPDATE NOWAIT, then finish draining.
     let test_app = spawn_app().await;
 
     let issue_id = uuid::Uuid::new_v4();
@@ -1055,19 +1058,81 @@ async fn concurrent_task_completions_flip_issue_to_sent_exactly_once() {
     .await
     .unwrap();
 
-    Mock::given(path("/email"))
-        .and(method("POST"))
-        .respond_with(ResponseTemplate::new(200))
-        .expect(2)
-        .mount(&test_app.email_server)
-        .await;
+    let mut tx1 = test_app.pg_pool.begin().await.unwrap();
+    sqlx::query!(
+        r#"
+        DELETE FROM newsletter.issue_delivery_queue
+        WHERE newsletter_issue_id = $1 AND subscriber_email = $2
+        "#,
+        issue_id,
+        email_one
+    )
+    .execute(&mut *tx1)
+    .await
+    .unwrap();
+    site::issue_delivery_worker::mark_sent_if_drained(&mut tx1, issue_id)
+        .await
+        .unwrap();
 
-    let (first, second) = tokio::join!(
-        try_execute_task(&test_app.pg_pool, &test_app.email_client),
-        try_execute_task(&test_app.pg_pool, &test_app.email_client)
+    // Separate connection must not acquire the issue row while tx1 holds it.
+    let nowait = sqlx::query_scalar!(
+        r#"
+        SELECT newsletter_issue_id
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        FOR UPDATE NOWAIT
+        "#,
+        issue_id
+    )
+    .fetch_optional(&test_app.pg_pool)
+    .await;
+    match nowait {
+        Err(sqlx::Error::Database(err)) => {
+            assert_eq!(
+                err.code().as_deref(),
+                Some("55P03"),
+                "expected lock_not_available, got {:?}",
+                err
+            );
+        }
+        other => panic!("expected lock_not_available (55P03), got {other:?}"),
+    }
+
+    tx1.commit().await.unwrap();
+
+    let status_after_first = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: site::domain::NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        status_after_first,
+        site::domain::NewsletterIssueStatus::Queued,
+        "one queue row remains, so status must stay queued"
     );
-    assert!(matches!(first.unwrap(), ExecutionOutcome::TaskCompleted));
-    assert!(matches!(second.unwrap(), ExecutionOutcome::TaskCompleted));
+
+    let mut tx2 = test_app.pg_pool.begin().await.unwrap();
+    sqlx::query!(
+        r#"
+        DELETE FROM newsletter.issue_delivery_queue
+        WHERE newsletter_issue_id = $1 AND subscriber_email = $2
+        "#,
+        issue_id,
+        email_two
+    )
+    .execute(&mut *tx2)
+    .await
+    .unwrap();
+    site::issue_delivery_worker::mark_sent_if_drained(&mut tx2, issue_id)
+        .await
+        .unwrap();
+    tx2.commit().await.unwrap();
 
     let status = sqlx::query_scalar!(
         r#"

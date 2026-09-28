@@ -1,6 +1,7 @@
 use crate::authentication::UserId;
 use crate::domain::NewsletterIssueStatus;
 use crate::idempotency::{IdempotencyKey, NextAction, save_response, try_processing};
+use crate::issue_delivery_worker::mark_sent_if_drained;
 use crate::utils::e400;
 use crate::utils::{e500, see_other};
 use actix_web::http::header::{HeaderName, HeaderValue};
@@ -216,23 +217,9 @@ pub async fn queue_issue_for_delivery(
             .execute(&mut **transaction)
             .await?;
             enqueue_delivery_tasks(transaction, newsletter_issue_id).await?;
-            // Same NOT EXISTS predicate as delete_task: empty queue ⇒ sent.
-            sqlx::query!(
-                r#"
-                UPDATE newsletter.newsletter_issues
-                SET status = 'sent'
-                WHERE newsletter_issue_id = $1
-                  AND status = 'queued'
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM newsletter.issue_delivery_queue
-                      WHERE newsletter_issue_id = $1
-                  )
-                "#,
-                newsletter_issue_id
-            )
-            .execute(&mut **transaction)
-            .await?;
+            // Issue row already held FOR UPDATE above; helper re-takes it (no-op)
+            // and shares the emptiness predicate with the worker's delete_task.
+            mark_sent_if_drained(transaction, newsletter_issue_id).await?;
             Ok(QueueOutcome::Queued)
         }
         NewsletterIssueStatus::Queued

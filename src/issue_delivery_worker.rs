@@ -155,8 +155,21 @@ async fn delete_task(
     )
     .execute(&mut *transaction)
     .await?;
-    // Serialize concurrent workers on the issue row before the emptiness check
-    // so two last-row DELETEs cannot both observe NOT EXISTS as false.
+    mark_sent_if_drained(&mut transaction, issue_id).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+/// Lock the issue row (`FOR UPDATE`) and flip `queued` → `sent` when its
+/// delivery queue is empty. Shared by the worker's `delete_task` and publish's
+/// zero-subscriber path so the emptiness predicate lives in one place. The
+/// lock serializes concurrent drain checks so two last-row DELETEs cannot both
+/// observe `NOT EXISTS` as false.
+#[tracing::instrument(skip_all)]
+pub async fn mark_sent_if_drained(
+    transaction: &mut Transaction<'_, Postgres>,
+    issue_id: Uuid,
+) -> Result<(), sqlx::Error> {
     sqlx::query!(
         r#"
         SELECT newsletter_issue_id
@@ -166,9 +179,8 @@ async fn delete_task(
         "#,
         issue_id
     )
-    .fetch_optional(&mut *transaction)
+    .fetch_optional(&mut **transaction)
     .await?;
-    // When the last queue row for a queued issue is gone, delivery is complete.
     sqlx::query!(
         r#"
         UPDATE newsletter.newsletter_issues
@@ -183,9 +195,8 @@ async fn delete_task(
         "#,
         issue_id
     )
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await?;
-    transaction.commit().await?;
     Ok(())
 }
 
