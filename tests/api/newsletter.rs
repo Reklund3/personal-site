@@ -514,6 +514,205 @@ async fn idempotent_replay_of_already_handled_issue_keeps_already_handled_flash(
 }
 
 #[tokio::test]
+async fn idempotent_replay_with_deleted_issue_flashes_already_handled() {
+    // L1: missing issue row must not be treated as success on replay.
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES ($1, 'Already sent', 'text', '<p>html</p>', now(), 'sent')
+        "#,
+        issue_id
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    let newsletter_request_body = serde_json::json!({
+        "title": "ignored",
+        "text_content": "ignored",
+        "html_content": "<p>ignored</p>",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+        "newsletter_issue_id": issue_id.to_string()
+    });
+
+    let response = test_app
+        .post_publish_newsletter(&newsletter_request_body)
+        .await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html_page = test_app.get_publish_newsletter_html().await;
+    assert!(html_page.contains("already been handled"));
+
+    // Delete the issue the first request targeted (bypass FK for delivery rows).
+    let mut conn = test_app.pg_pool.acquire().await.unwrap();
+    sqlx::query!("SET session_replication_role = 'replica'")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    sqlx::query!(
+        r#"
+        DELETE FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .execute(&mut *conn)
+    .await
+    .unwrap();
+    sqlx::query!("SET session_replication_role = 'origin'")
+        .execute(&mut *conn)
+        .await
+        .unwrap();
+    drop(conn);
+
+    // Replay: saved 303 still returned; flash must stay already-handled
+    // (missing row ≠ success).
+    let response = test_app
+        .post_publish_newsletter(&newsletter_request_body)
+        .await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    assert_eq!(response.status().as_u16(), 303);
+    let html_page = test_app.get_publish_newsletter_html().await;
+    assert!(
+        html_page.contains("already been handled"),
+        "expected already-handled flash when issue row is gone, got: {html_page}"
+    );
+    assert!(
+        !html_page.contains("emails will go out shortly"),
+        "missing issue must not flash success on replay"
+    );
+}
+
+#[tokio::test]
+async fn idempotent_replay_flash_follows_first_outcome_not_replay_body() {
+    // L2: replay body may omit/change newsletter_issue_id; flash must still
+    // match the first processing outcome stored on the idempotency record.
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    // --- Case A: first accept AlreadyHandled; replay without issue id ---
+    let sent_id = uuid::Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES ($1, 'Already sent', 'text', '<p>html</p>', now(), 'sent')
+        "#,
+        sent_id
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    let key_a = uuid::Uuid::new_v4().to_string();
+    let first_a = serde_json::json!({
+        "title": "ignored",
+        "text_content": "ignored",
+        "html_content": "<p>ignored</p>",
+        "idempotency_key": key_a,
+        "newsletter_issue_id": sent_id.to_string()
+    });
+    let response = test_app.post_publish_newsletter(&first_a).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html_page = test_app.get_publish_newsletter_html().await;
+    assert!(html_page.contains("already been handled"));
+
+    // Replay with a mismatched body: no newsletter_issue_id (would have been
+    // treated as a "new publish ⇒ success" under the old body-keyed logic).
+    let replay_a = serde_json::json!({
+        "title": "different",
+        "text_content": "different",
+        "html_content": "<p>different</p>",
+        "idempotency_key": key_a
+    });
+    let response = test_app.post_publish_newsletter(&replay_a).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html_page = test_app.get_publish_newsletter_html().await;
+    assert!(
+        html_page.contains("already been handled"),
+        "replay flash must match first AlreadyHandled outcome, got: {html_page}"
+    );
+    assert!(!html_page.contains("emails will go out shortly"));
+
+    // --- Case B: first new publish Queued; replay with an unrelated sent id ---
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let key_b = uuid::Uuid::new_v4().to_string();
+    let first_b = serde_json::json!({
+        "title": "Fresh issue",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": key_b
+    });
+    let response = test_app.post_publish_newsletter(&first_b).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html_page = test_app.get_publish_newsletter_html().await;
+    assert!(html_page.contains("emails will go out shortly"));
+
+    let unrelated_sent = uuid::Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES ($1, 'Already sent', 'text', '<p>html</p>', now(), 'sent')
+        "#,
+        unrelated_sent
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    let replay_b = serde_json::json!({
+        "title": "Fresh issue",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": key_b,
+        "newsletter_issue_id": unrelated_sent.to_string()
+    });
+    let response = test_app.post_publish_newsletter(&replay_b).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html_page = test_app.get_publish_newsletter_html().await;
+    assert!(
+        html_page.contains("emails will go out shortly"),
+        "replay flash must match first Queued/success outcome, got: {html_page}"
+    );
+    assert!(
+        !html_page.contains("already been handled"),
+        "mismatched replay body must not switch flash to already-handled"
+    );
+
+    test_app.dispatch_all_pending_emails().await;
+}
+
+#[tokio::test]
 async fn missing_issue_drains_orphaned_delivery_queue() {
     let test_app = spawn_app().await;
     let issue_id = uuid::Uuid::new_v4();

@@ -3,11 +3,16 @@ use crate::domain::NewsletterIssueStatus;
 use crate::idempotency::{IdempotencyKey, NextAction, save_response, try_processing};
 use crate::utils::e400;
 use crate::utils::{e500, see_other};
+use actix_web::http::header::{HeaderName, HeaderValue};
 use actix_web::{HttpResponse, web};
 use actix_web_flash_messages::FlashMessage;
 use anyhow::Context;
 use sqlx::{Executor, PgPool, Postgres, Transaction};
 use uuid::Uuid;
+
+/// Persisted on the idempotency saved response so replay flash reflects the
+/// first processing outcome, not a possibly different replay body.
+const QUEUE_OUTCOME_HEADER: &str = "x-newsletter-queue-outcome";
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
@@ -72,13 +77,10 @@ pub async fn publish_newsletter(
     {
         NextAction::StartProcessing(t) => t,
         NextAction::ReturnSavedResponse(saved_response) => {
-            // Re-derive flash from issue status on idempotent replay when the
-            // form targeted an existing issue; new publishes always completed
-            // as a successful accept on first processing.
-            // Flash derivation must never turn a successful idempotent replay
-            // into a 500 — the saved HTTP response is the source of truth.
-            flash_for_idempotent_replay(&pool, existing_issue_id).await;
-            return Ok(saved_response);
+            // Flash must follow the first accept's outcome (stored on the
+            // idempotency response), never this request's newsletter_issue_id.
+            flash_for_idempotent_replay(&saved_response);
+            return Ok(strip_queue_outcome_header(saved_response));
         }
     };
     let issue_id = match existing_issue_id {
@@ -99,7 +101,7 @@ pub async fn publish_newsletter(
             ));
         }
     };
-    let response = see_other("/admin/newsletters");
+    let response = attach_queue_outcome(see_other("/admin/newsletters"), &outcome);
     let response = save_response(transaction, &idempotency_key, *user_id, response)
         .await
         .map_err(e500)?;
@@ -107,44 +109,42 @@ pub async fn publish_newsletter(
         QueueOutcome::Queued => success_message().send(),
         QueueOutcome::AlreadyHandled { .. } => already_handled_message().send(),
     }
-    Ok(response)
+    Ok(strip_queue_outcome_header(response))
 }
 
-/// Prefer already-handled when replaying an accept of an existing issue that is
-/// no longer a draft; otherwise keep the historical success flash for new
-/// publishes (and rare draft-still-draft replays).
-///
-/// Lookup errors are logged and degrade to a conservative flash — never to HTTP
-/// 500 — so a flash DB blip cannot fail an otherwise-committed idempotent replay.
-async fn flash_for_idempotent_replay(pool: &PgPool, existing_issue_id: Option<Uuid>) {
-    let Some(issue_id) = existing_issue_id else {
-        success_message().send();
-        return;
+fn attach_queue_outcome(mut response: HttpResponse, outcome: &QueueOutcome) -> HttpResponse {
+    let value = match outcome {
+        QueueOutcome::Queued => "queued",
+        QueueOutcome::AlreadyHandled { .. } => "already-handled",
     };
-    let status = sqlx::query_scalar!(
-        r#"
-        SELECT status as "status: NewsletterIssueStatus"
-        FROM newsletter.newsletter_issues
-        WHERE newsletter_issue_id = $1
-        "#,
-        issue_id
-    )
-    .fetch_optional(pool)
-    .await;
-    match status {
-        Ok(Some(NewsletterIssueStatus::Draft)) | Ok(None) => success_message().send(),
-        Ok(Some(_)) => already_handled_message().send(),
-        Err(e) => {
-            tracing::error!(
-                error.cause_chain = ?e,
-                error.message = %e,
-                "Failed to look up newsletter issue status for idempotent replay flash"
-            );
-            // Conservative choice: already-handled (not success). On replay of an
-            // existing-issue accept we would rather under-promise delivery than
-            // claim emails are about to go out when we could not read status.
-            already_handled_message().send();
-        }
+    response.headers_mut().insert(
+        HeaderName::from_static(QUEUE_OUTCOME_HEADER),
+        HeaderValue::from_static(value),
+    );
+    response
+}
+
+fn strip_queue_outcome_header(mut response: HttpResponse) -> HttpResponse {
+    response.headers_mut().remove(QUEUE_OUTCOME_HEADER);
+    response
+}
+
+/// Replay flash comes from the queue outcome recorded on the first saved
+/// response (`x-newsletter-queue-outcome`), which is part of the idempotency
+/// headers/body metadata. Looking up `newsletter_issue_id` from the replay
+/// body is wrong (body may differ), and re-reading issue status cannot
+/// reconstruct Queued vs AlreadyHandled after a successful accept (status is
+/// already non-draft). Missing/unknown header ⇒ already-handled (absence is
+/// not success — same rule as a missing issue row).
+fn flash_for_idempotent_replay(saved_response: &HttpResponse) {
+    let outcome = saved_response
+        .headers()
+        .get(QUEUE_OUTCOME_HEADER)
+        .and_then(|v| v.to_str().ok());
+    match outcome {
+        Some("queued") => success_message().send(),
+        // "already-handled", missing, or anything unexpected
+        _ => already_handled_message().send(),
     }
 }
 
