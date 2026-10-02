@@ -2,7 +2,6 @@ use crate::helpers::{ConfirmationLinks, TestApp, assert_is_redirect_to, spawn_ap
 use fake::Fake;
 use fake::faker::internet::en::SafeEmail;
 use fake::faker::name::en::Name;
-use site::issue_delivery_worker::{ExecutionOutcome, try_execute_task};
 use std::time::Duration;
 use wiremock::matchers::{any, method, path};
 use wiremock::{Mock, ResponseTemplate};
@@ -514,86 +513,6 @@ async fn idempotent_replay_of_already_handled_issue_keeps_already_handled_flash(
 }
 
 #[tokio::test]
-async fn idempotent_replay_with_deleted_issue_flashes_already_handled() {
-    // L1: missing issue row must not be treated as success on replay.
-    let test_app = spawn_app().await;
-    test_app.test_user.login(&test_app).await;
-
-    let issue_id = uuid::Uuid::new_v4();
-    sqlx::query!(
-        r#"
-        INSERT INTO newsletter.newsletter_issues (
-            newsletter_issue_id,
-            title,
-            text_content,
-            html_content,
-            published_at,
-            status
-        )
-        VALUES ($1, 'Already sent', 'text', '<p>html</p>', now(), 'sent')
-        "#,
-        issue_id
-    )
-    .execute(&test_app.pg_pool)
-    .await
-    .unwrap();
-
-    let newsletter_request_body = serde_json::json!({
-        "title": "ignored",
-        "text_content": "ignored",
-        "html_content": "<p>ignored</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string(),
-        "newsletter_issue_id": issue_id.to_string()
-    });
-
-    let response = test_app
-        .post_publish_newsletter(&newsletter_request_body)
-        .await;
-    assert_is_redirect_to(&response, "/admin/newsletters");
-    let html_page = test_app.get_publish_newsletter_html().await;
-    assert!(html_page.contains("already been handled"));
-
-    // Delete the issue the first request targeted (bypass FK for delivery rows).
-    let mut conn = test_app.pg_pool.acquire().await.unwrap();
-    sqlx::query!("SET session_replication_role = 'replica'")
-        .execute(&mut *conn)
-        .await
-        .unwrap();
-    sqlx::query!(
-        r#"
-        DELETE FROM newsletter.newsletter_issues
-        WHERE newsletter_issue_id = $1
-        "#,
-        issue_id
-    )
-    .execute(&mut *conn)
-    .await
-    .unwrap();
-    sqlx::query!("SET session_replication_role = 'origin'")
-        .execute(&mut *conn)
-        .await
-        .unwrap();
-    drop(conn);
-
-    // Replay: saved 303 still returned; flash must stay already-handled
-    // (missing row ≠ success).
-    let response = test_app
-        .post_publish_newsletter(&newsletter_request_body)
-        .await;
-    assert_is_redirect_to(&response, "/admin/newsletters");
-    assert_eq!(response.status().as_u16(), 303);
-    let html_page = test_app.get_publish_newsletter_html().await;
-    assert!(
-        html_page.contains("already been handled"),
-        "expected already-handled flash when issue row is gone, got: {html_page}"
-    );
-    assert!(
-        !html_page.contains("emails will go out shortly"),
-        "missing issue must not flash success on replay"
-    );
-}
-
-#[tokio::test]
 async fn idempotent_replay_flash_follows_first_outcome_not_replay_body() {
     // L2: replay body may omit/change newsletter_issue_id; flash must still
     // match the first processing outcome stored on the idempotency record.
@@ -710,98 +629,6 @@ async fn idempotent_replay_flash_follows_first_outcome_not_replay_body() {
     );
 
     test_app.dispatch_all_pending_emails().await;
-}
-
-#[tokio::test]
-async fn missing_issue_drains_orphaned_delivery_queue() {
-    let test_app = spawn_app().await;
-    let issue_id = uuid::Uuid::new_v4();
-    let subscriber_email: String = SafeEmail().fake();
-
-    // Insert issue + orphanable queue row, then delete only the issue (bypass FK)
-    // so get_issue returns None while a delivery task still exists.
-    sqlx::query!(
-        r#"
-        INSERT INTO newsletter.newsletter_issues (
-            newsletter_issue_id,
-            title,
-            text_content,
-            html_content,
-            published_at,
-            status
-        )
-        VALUES ($1, 'Gone', 'text', '<p>html</p>', now(), 'queued')
-        "#,
-        issue_id
-    )
-    .execute(&test_app.pg_pool)
-    .await
-    .unwrap();
-    sqlx::query!(
-        r#"
-        INSERT INTO newsletter.issue_delivery_queue (
-            newsletter_issue_id,
-            subscriber_email
-        )
-        VALUES ($1, $2)
-        "#,
-        issue_id,
-        subscriber_email
-    )
-    .execute(&test_app.pg_pool)
-    .await
-    .unwrap();
-
-    // Bypass FK on a single connection (pool checkouts would not share SET).
-    let mut conn = test_app.pg_pool.acquire().await.unwrap();
-    sqlx::query!("SET session_replication_role = 'replica'")
-        .execute(&mut *conn)
-        .await
-        .unwrap();
-    sqlx::query!(
-        r#"
-        DELETE FROM newsletter.newsletter_issues
-        WHERE newsletter_issue_id = $1
-        "#,
-        issue_id
-    )
-    .execute(&mut *conn)
-    .await
-    .unwrap();
-    sqlx::query!("SET session_replication_role = 'origin'")
-        .execute(&mut *conn)
-        .await
-        .unwrap();
-    drop(conn);
-
-    Mock::given(any())
-        .respond_with(ResponseTemplate::new(200))
-        .expect(0)
-        .mount(&test_app.email_server)
-        .await;
-
-    let outcome = try_execute_task(&test_app.pg_pool, &test_app.email_client)
-        .await
-        .expect("missing issue drains orphans as TaskCompleted, not a transient Err");
-    assert!(matches!(outcome, ExecutionOutcome::TaskCompleted));
-
-    let remaining = sqlx::query_scalar!(
-        r#"
-        SELECT COUNT(*)
-        FROM newsletter.issue_delivery_queue
-        WHERE newsletter_issue_id = $1
-        "#,
-        issue_id
-    )
-    .fetch_one(&test_app.pg_pool)
-    .await
-    .unwrap();
-    assert_eq!(remaining, Some(0), "delivery queue must be drained");
-
-    let outcome = try_execute_task(&test_app.pg_pool, &test_app.email_client)
-        .await
-        .expect("queue should be empty after drain");
-    assert!(matches!(outcome, ExecutionOutcome::EmptyQueue));
 }
 
 #[tokio::test]

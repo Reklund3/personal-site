@@ -51,61 +51,41 @@ pub async fn try_execute_task(
         .record("newsletter_issue_id", display(issue_id))
         .record("subscriber_email", display(&email));
 
-    // Enqueue only sets status to `queued`. We flip to `sent` once delivery work
-    // for the issue is fully done (queue empty). The `None` branch below is
-    // reached only if the issue row is already gone by the time a queue task
-    // for it runs — a state the delivery queue's foreign key should prevent via
-    // normal application code. Since get_issue just proved the row doesn't
-    // exist, there is nothing to mark `failed` (that UPDATE would always affect
-    // zero rows). We only drain the now-orphaned delivery queue rows for that
-    // issue id so the worker doesn't spin on them forever. Transient DB errors
-    // from get_issue propagate so the worker_loop retries. Per-subscriber email
-    // API errors are logged and skipped (task removed); they do not mark the
-    // issue `failed`. The `failed` enum value is reserved for future use.
-    // Transient send retries / backoff are tracked in issue #32.
-    match get_issue(pool, issue_id).await? {
-        Some(issue) => {
-            match UserEmail::parse(email.clone()) {
-                Ok(email) => {
-                    if let Err(e) = email_client
-                        .send_email(
-                            &email,
-                            &issue.title,
-                            &issue.html_content,
-                            &issue.text_content,
-                        )
-                        .await
-                    {
-                        tracing::error!(
-                            error.cause_chain = ?e,
-                            error.message = %e,
-                            "Failed to deliver issue to a confirmed subscriber. \
-                                Skipping.",
-                        );
-                    }
-                }
-                Err(e) => {
-                    tracing::error!(
-                        error.cause_chain = ?e,
-                        error.message = %e,
-                        "Skipping a confirmed subscriber. \
-                            Their stored contact details are invalid",
-                    );
-                }
+    // Enqueue leaves the issue `queued`; `delete_task` flips it to `sent` once the
+    // last queue row is gone. Per-subscriber send errors are logged and skipped
+    // (task removed) and do not mark the issue `failed`. Retries / backoff are
+    // tracked in issue #32.
+    let issue = get_issue(pool, issue_id).await?;
+    match UserEmail::parse(email.clone()) {
+        Ok(email) => {
+            if let Err(e) = email_client
+                .send_email(
+                    &email,
+                    &issue.title,
+                    &issue.html_content,
+                    &issue.text_content,
+                )
+                .await
+            {
+                tracing::error!(
+                    error.cause_chain = ?e,
+                    error.message = %e,
+                    "Failed to deliver issue to a confirmed subscriber. \
+                        Skipping.",
+                );
             }
-            delete_task(transaction, issue_id, &email).await?;
-            Ok(ExecutionOutcome::TaskCompleted)
         }
-        None => {
+        Err(e) => {
             tracing::error!(
-                %issue_id,
-                "Newsletter issue row missing (should be prevented by a \
-                 foreign key); draining its now-orphaned delivery queue rows.",
+                error.cause_chain = ?e,
+                error.message = %e,
+                "Skipping a confirmed subscriber. \
+                    Their stored contact details are invalid",
             );
-            drain_orphaned_delivery_tasks(transaction, issue_id).await?;
-            Ok(ExecutionOutcome::TaskCompleted)
         }
     }
+    delete_task(transaction, issue_id, &email).await?;
+    Ok(ExecutionOutcome::TaskCompleted)
 }
 
 type PgTransaction = Transaction<'static, Postgres>;
@@ -200,30 +180,6 @@ pub async fn mark_sent_if_drained(
     Ok(())
 }
 
-/// Drain orphaned delivery-queue rows when the parent issue row is already
-/// gone — a state the delivery queue's foreign key should prevent via normal
-/// application code. Reached only after `get_issue` returned `None`; there is
-/// no write-reachable path that sets `status = 'failed'` today (the enum value
-/// is kept for schema/API honesty). This helper only deletes remaining queue
-/// rows for that issue id so the worker does not spin on them forever.
-#[tracing::instrument(skip_all)]
-async fn drain_orphaned_delivery_tasks(
-    mut transaction: PgTransaction,
-    issue_id: Uuid,
-) -> Result<(), anyhow::Error> {
-    sqlx::query!(
-        r#"
-        DELETE FROM newsletter.issue_delivery_queue
-        WHERE newsletter_issue_id = $1
-        "#,
-        issue_id
-    )
-    .execute(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
-    Ok(())
-}
-
 struct NewsletterIssue {
     title: String,
     text_content: String,
@@ -231,10 +187,7 @@ struct NewsletterIssue {
 }
 
 #[tracing::instrument(skip_all)]
-async fn get_issue(
-    pool: &PgPool,
-    issue_id: Uuid,
-) -> Result<Option<NewsletterIssue>, anyhow::Error> {
+async fn get_issue(pool: &PgPool, issue_id: Uuid) -> Result<NewsletterIssue, anyhow::Error> {
     let issue = sqlx::query_as!(
         NewsletterIssue,
         r#"
@@ -245,7 +198,7 @@ async fn get_issue(
         "#,
         issue_id
     )
-    .fetch_optional(pool)
+    .fetch_one(pool)
     .await?;
     Ok(issue)
 }
