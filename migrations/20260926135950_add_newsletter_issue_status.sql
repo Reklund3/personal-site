@@ -11,23 +11,15 @@ CREATE TYPE newsletter.newsletter_issue_status AS ENUM (
     'failed'
 );
 
+-- The default lets ADD COLUMN succeed on a table that already has rows;
+-- `draft` is the natural initial state for new issues.
 ALTER TABLE newsletter.newsletter_issues
     ADD COLUMN status newsletter.newsletter_issue_status NOT NULL DEFAULT 'draft';
 
--- Existing rows were already published under the pre-status schema.
--- Prefer `queued` when delivery work is still outstanding so a mid-flight
--- issue is not marked `sent` while issue_delivery_queue rows remain; otherwise
--- `sent`. (This migration has not shipped to prod; edit in place rather than
--- add a follow-up backfill.)
-UPDATE newsletter.newsletter_issues ni
-SET status = CASE
-    WHEN EXISTS (
-        SELECT 1
-        FROM newsletter.issue_delivery_queue q
-        WHERE q.newsletter_issue_id = ni.newsletter_issue_id
-    ) THEN 'queued'::newsletter.newsletter_issue_status
-    ELSE 'sent'::newsletter.newsletter_issue_status
-END;
+-- Existing rows were published before status existed; none of them is a real
+-- draft. The production table is empty, so this only affects local/dev
+-- databases (any with delivery still outstanding will show `sent` early).
+UPDATE newsletter.newsletter_issues SET status = 'sent';
 
 -- published_at was created as TEXT in the original newsletter_issues migration
 -- (20231110183908). Existing values were all written by now(), so they are
