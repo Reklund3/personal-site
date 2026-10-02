@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO newsletter.newsletter_issues (\n            newsletter_issue_id,\n            title,\n            text_content,\n            html_content,\n            published_at,\n            status\n        )\n        VALUES ($1, $2, $3, $4, now(), 'draft')\n        ON CONFLICT (newsletter_issue_id) DO UPDATE\n        SET\n            title = EXCLUDED.title,\n            text_content = EXCLUDED.text_content,\n            html_content = EXCLUDED.html_content\n        WHERE newsletter.newsletter_issues.status = 'draft'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5f32318a96959eed271a7ed010a7b312bd98f72a7b7819c0e564b2ad4694bb63"
+}

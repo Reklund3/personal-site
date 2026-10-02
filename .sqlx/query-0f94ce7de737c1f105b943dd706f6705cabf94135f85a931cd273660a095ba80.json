@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE newsletter.newsletter_issues\n                SET status = 'queued', published_at = now()\n                WHERE newsletter_issue_id = $1\n                  AND status = 'draft'\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0f94ce7de737c1f105b943dd706f6705cabf94135f85a931cd273660a095ba80"
+}

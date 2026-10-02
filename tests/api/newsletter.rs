@@ -737,7 +737,7 @@ async fn zero_confirmed_subscribers_marks_issue_sent_on_publish() {
 }
 
 #[tokio::test]
-async fn http_accept_of_existing_draft_via_newsletter_issue_id() {
+async fn http_accept_of_existing_draft_updates_its_content_and_queues_it() {
     let test_app = spawn_app().await;
     create_confirmed_subscriber(&test_app).await;
     test_app.test_user.login(&test_app).await;
@@ -753,7 +753,7 @@ async fn http_accept_of_existing_draft_via_newsletter_issue_id() {
             published_at,
             status
         )
-        VALUES ($1, 'Draft to accept', 'draft text', '<p>draft</p>', now(), 'draft')
+        VALUES ($1, 'Draft to accept', 'draft text', '<p>draft</p>', now() - interval '2 days', 'draft')
         "#,
         issue_id
     )
@@ -769,9 +769,9 @@ async fn http_accept_of_existing_draft_via_newsletter_issue_id() {
         .await;
 
     let newsletter_request_body = serde_json::json!({
-        "title": "ignored on accept",
-        "text_content": "ignored",
-        "html_content": "<p>ignored</p>",
+        "title": "Edited title",
+        "text_content": "edited text",
+        "html_content": "<p>edited</p>",
         "idempotency_key": uuid::Uuid::new_v4().to_string(),
         "newsletter_issue_id": issue_id.to_string()
     });
@@ -812,10 +812,16 @@ async fn http_accept_of_existing_draft_via_newsletter_issue_id() {
     .unwrap();
     assert_eq!(queued, Some(1));
 
-    // Content fields on the form must be ignored — original draft content kept.
-    let title = sqlx::query_scalar!(
+    // The submitted content replaces the draft's, and publishing stamps
+    // published_at (it was backdated two days when the draft was created).
+    let issue = sqlx::query!(
         r#"
-        SELECT title FROM newsletter.newsletter_issues
+        SELECT
+            title,
+            text_content,
+            html_content,
+            published_at > now() - interval '1 hour' as "published_recently!"
+        FROM newsletter.newsletter_issues
         WHERE newsletter_issue_id = $1
         "#,
         issue_id
@@ -823,7 +829,10 @@ async fn http_accept_of_existing_draft_via_newsletter_issue_id() {
     .fetch_one(&test_app.pg_pool)
     .await
     .unwrap();
-    assert_eq!(title, "Draft to accept");
+    assert_eq!(issue.title, "Edited title");
+    assert_eq!(issue.text_content, "edited text");
+    assert_eq!(issue.html_content, "<p>edited</p>");
+    assert!(issue.published_recently);
 
     test_app.dispatch_all_pending_emails().await;
 
@@ -989,35 +998,46 @@ async fn concurrent_task_completions_flip_issue_to_sent_exactly_once() {
 }
 
 #[tokio::test]
-async fn unknown_newsletter_issue_id_returns_400_and_rolls_back_idempotency() {
+async fn posting_with_an_unused_issue_id_creates_the_issue_under_that_id() {
     let test_app = spawn_app().await;
     create_confirmed_subscriber(&test_app).await;
     test_app.test_user.login(&test_app).await;
 
-    let unknown_id = uuid::Uuid::new_v4();
-    let idempotency_key = uuid::Uuid::new_v4().to_string();
-
-    Mock::given(any())
+    Mock::given(path("/email"))
+        .and(method("POST"))
         .respond_with(ResponseTemplate::new(200))
-        .expect(0)
+        .expect(1)
         .mount(&test_app.email_server)
         .await;
 
+    let issue_id = uuid::Uuid::new_v4();
     let newsletter_request_body = serde_json::json!({
-        "title": "ignored",
-        "text_content": "ignored",
-        "html_content": "<p>ignored</p>",
-        "idempotency_key": idempotency_key,
-        "newsletter_issue_id": unknown_id.to_string()
+        "title": "Brand new issue",
+        "text_content": "new text",
+        "html_content": "<p>new</p>",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+        "newsletter_issue_id": issue_id.to_string()
     });
     let response = test_app
         .post_publish_newsletter(&newsletter_request_body)
         .await;
-    assert_eq!(
-        response.status().as_u16(),
-        400,
-        "missing issue must be a client error, not a saved redirect"
-    );
+    assert_is_redirect_to(&response, "/admin/newsletters");
+
+    let issue = sqlx::query!(
+        r#"
+        SELECT
+            title,
+            status as "status: site::domain::NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(issue.title, "Brand new issue");
+    assert_eq!(issue.status, site::domain::NewsletterIssueStatus::Queued);
 
     let queued = sqlx::query_scalar!(
         r#"
@@ -1025,72 +1045,78 @@ async fn unknown_newsletter_issue_id_returns_400_and_rolls_back_idempotency() {
         FROM newsletter.issue_delivery_queue
         WHERE newsletter_issue_id = $1
         "#,
-        unknown_id
+        issue_id
     )
     .fetch_one(&test_app.pg_pool)
     .await
     .unwrap();
-    assert_eq!(queued, Some(0), "no delivery rows for a missing issue");
+    assert_eq!(queued, Some(1));
+}
 
-    // App guarantee today: returning Err before save_response drops the
-    // try_processing transaction, so the idempotency INSERT rolls back and the
-    // same key can be used again (e.g. after correcting the issue id).
-    let draft_id = uuid::Uuid::new_v4();
-    sqlx::query!(
-        r#"
-        INSERT INTO newsletter.newsletter_issues (
-            newsletter_issue_id,
-            title,
-            text_content,
-            html_content,
-            published_at,
-            status
-        )
-        VALUES ($1, 'Draft title', 'text', '<p>html</p>', now(), 'draft')
-        "#,
-        draft_id
-    )
-    .execute(&test_app.pg_pool)
-    .await
-    .unwrap();
+#[tokio::test]
+async fn resubmitting_a_queued_issue_id_does_not_change_its_content() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
 
-    // Same key after the 400 must start fresh processing (idempotency INSERT
-    // rolled back with the failed request), not hit "expected a saved response".
-    let retry_body = serde_json::json!({
-        "title": "ignored",
-        "text_content": "ignored",
-        "html_content": "<p>ignored</p>",
-        "idempotency_key": idempotency_key,
-        "newsletter_issue_id": draft_id.to_string()
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let first = serde_json::json!({
+        "title": "Original title",
+        "text_content": "original text",
+        "html_content": "<p>original</p>",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+        "newsletter_issue_id": issue_id.to_string()
     });
-    let retry = test_app.post_publish_newsletter(&retry_body).await;
-    assert_is_redirect_to(&retry, "/admin/newsletters");
+    let response = test_app.post_publish_newsletter(&first).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
 
-    let status = sqlx::query_scalar!(
+    // Different idempotency key, same issue id, different content: the issue is
+    // already queued, so nothing is updated and nothing is enqueued again.
+    let second = serde_json::json!({
+        "title": "Changed title",
+        "text_content": "changed text",
+        "html_content": "<p>changed</p>",
+        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+        "newsletter_issue_id": issue_id.to_string()
+    });
+    let response = test_app.post_publish_newsletter(&second).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html_page = test_app.get_publish_newsletter_html().await;
+    assert!(html_page.contains("already been handled"));
+
+    let title = sqlx::query_scalar!(
         r#"
-        SELECT status as "status: site::domain::NewsletterIssueStatus"
-        FROM newsletter.newsletter_issues
+        SELECT title FROM newsletter.newsletter_issues
         WHERE newsletter_issue_id = $1
         "#,
-        draft_id
+        issue_id
     )
     .fetch_one(&test_app.pg_pool)
     .await
     .unwrap();
-    assert_eq!(status, site::domain::NewsletterIssueStatus::Queued);
+    assert_eq!(title, "Original title");
 
-    let queued_after = sqlx::query_scalar!(
+    let queued = sqlx::query_scalar!(
         r#"
         SELECT COUNT(*)
         FROM newsletter.issue_delivery_queue
         WHERE newsletter_issue_id = $1
         "#,
-        draft_id
+        issue_id
     )
     .fetch_one(&test_app.pg_pool)
     .await
     .unwrap();
-    assert_eq!(queued_after, Some(1));
+    assert_eq!(queued, Some(1));
+
+    test_app.dispatch_all_pending_emails().await;
 }
 
 #[tokio::test]
@@ -1171,4 +1197,94 @@ async fn concurrent_queue_issue_for_delivery_enqueues_exactly_once() {
     .await
     .unwrap();
     assert_eq!(queued, Some(1));
+}
+
+#[tokio::test]
+async fn publish_requires_title_and_content_even_with_an_issue_id() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let test_cases = vec![
+        (
+            serde_json::json!({
+                "text_content": "text",
+                "html_content": "<p>html</p>",
+                "idempotency_key": uuid::Uuid::new_v4().to_string(),
+                "newsletter_issue_id": uuid::Uuid::new_v4().to_string()
+            }),
+            "missing title",
+        ),
+        (
+            serde_json::json!({
+                "title": "Title",
+                "html_content": "<p>html</p>",
+                "idempotency_key": uuid::Uuid::new_v4().to_string(),
+                "newsletter_issue_id": uuid::Uuid::new_v4().to_string()
+            }),
+            "missing text content",
+        ),
+        (
+            serde_json::json!({
+                "title": "Title",
+                "text_content": "text",
+                "idempotency_key": uuid::Uuid::new_v4().to_string(),
+                "newsletter_issue_id": uuid::Uuid::new_v4().to_string()
+            }),
+            "missing html content",
+        ),
+    ];
+
+    for (body, error_message) in test_cases {
+        let response = test_app.post_publish_newsletter(&body).await;
+        assert_eq!(
+            response.status().as_u16(),
+            400,
+            "The API did not fail with 400 Bad Request when the payload was {}.",
+            error_message
+        );
+    }
+}
+
+#[tokio::test]
+async fn newsletter_issues_published_at_orders_by_time() {
+    let test_app = spawn_app().await;
+
+    // published_at is a real timestamp, so ordering is by instant, not by the
+    // literal's text. "Earlier instant" is 2026-01-01T10:00Z but its literal
+    // sorts lexically after "Later instant" (2026-01-01T12:00Z); text ordering
+    // would pick the wrong row. Plain sqlx::query keeps this setup out of the
+    // offline cache.
+    sqlx::query(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES
+            ($1, 'Earlier instant', 'text', '<p>html</p>', '2026-01-02T00:00:00+14:00', 'sent'),
+            ($2, 'Later instant', 'text', '<p>html</p>', '2026-01-01T12:00:00+00:00', 'sent')
+        "#,
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(uuid::Uuid::new_v4())
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    let latest = sqlx::query_scalar!(
+        r#"
+        SELECT title
+        FROM newsletter.newsletter_issues
+        ORDER BY published_at DESC
+        LIMIT 1
+        "#
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(latest, "Later instant");
 }

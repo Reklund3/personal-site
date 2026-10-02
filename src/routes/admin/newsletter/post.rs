@@ -21,8 +21,9 @@ pub struct FormData {
     text_content: String,
     html_content: String,
     idempotency_key: String,
-    /// Optional existing draft to accept. When set, content fields are ignored
-    /// and we only attempt `draft` → `queued` + enqueue (no draft-editing UI yet).
+    /// Optional issue id. Absent ⇒ a new issue id is generated. Present ⇒ the
+    /// issue is inserted under that id, or its content is updated while it is
+    /// still a `draft`; either way it is then queued for delivery.
     #[serde(default)]
     newsletter_issue_id: Option<String>,
 }
@@ -84,24 +85,21 @@ pub async fn publish_newsletter(
             return Ok(strip_queue_outcome_header(saved_response));
         }
     };
-    let issue_id = match existing_issue_id {
-        Some(id) => id,
-        None => insert_newsletter_issue(&mut transaction, &title, &text_content, &html_content)
-            .await
-            .context("Failed to store newsletter issue details")
-            .map_err(e500)?,
-    };
-    let outcome = match queue_issue_for_delivery(&mut transaction, issue_id).await {
-        Ok(outcome) => outcome,
-        Err(sqlx::Error::RowNotFound) => {
-            return Err(e400("The requested newsletter issue does not exist."));
-        }
-        Err(e) => {
-            return Err(e500(
-                anyhow::Error::new(e).context("Failed to queue newsletter issue for delivery"),
-            ));
-        }
-    };
+    let issue_id = existing_issue_id.unwrap_or_else(Uuid::new_v4);
+    save_newsletter_issue(
+        &mut transaction,
+        issue_id,
+        &title,
+        &text_content,
+        &html_content,
+    )
+    .await
+    .context("Failed to store newsletter issue details")
+    .map_err(e500)?;
+    let outcome = queue_issue_for_delivery(&mut transaction, issue_id)
+        .await
+        .context("Failed to queue newsletter issue for delivery")
+        .map_err(e500)?;
     let response = attach_queue_outcome(see_other("/admin/newsletters"), &outcome);
     let response = save_response(transaction, &idempotency_key, *user_id, response)
         .await
@@ -149,14 +147,19 @@ fn flash_for_idempotent_replay(saved_response: &HttpResponse) {
     }
 }
 
+/// Insert the issue as a `draft` under `newsletter_issue_id`, or, if that id
+/// already exists, overwrite its content — but only while it is still a
+/// `draft`. Content of a `queued` / `sent` / `failed` issue is never touched:
+/// the worker re-reads it for every subscriber, so editing mid-delivery would
+/// send different content to different subscribers.
 #[tracing::instrument(skip_all)]
-async fn insert_newsletter_issue(
+async fn save_newsletter_issue(
     transaction: &mut Transaction<'_, Postgres>,
+    newsletter_issue_id: Uuid,
     title: &str,
     text_content: &str,
     html_content: &str,
-) -> Result<Uuid, sqlx::Error> {
-    let newsletter_issue_id = Uuid::new_v4();
+) -> Result<(), sqlx::Error> {
     let query = sqlx::query!(
         r#"
         INSERT INTO newsletter.newsletter_issues (
@@ -168,6 +171,12 @@ async fn insert_newsletter_issue(
             status
         )
         VALUES ($1, $2, $3, $4, now(), 'draft')
+        ON CONFLICT (newsletter_issue_id) DO UPDATE
+        SET
+            title = EXCLUDED.title,
+            text_content = EXCLUDED.text_content,
+            html_content = EXCLUDED.html_content
+        WHERE newsletter.newsletter_issues.status = 'draft'
         "#,
         newsletter_issue_id,
         title,
@@ -175,11 +184,11 @@ async fn insert_newsletter_issue(
         html_content
     );
     transaction.execute(query).await?;
-    Ok(newsletter_issue_id)
+    Ok(())
 }
 
-/// Accept a draft issue for delivery: `draft` → `queued` and enqueue subscriber tasks
-/// in the same transaction. Non-draft statuses are left untouched (no second blast).
+/// Accept a draft issue for delivery: `draft` → `queued` (stamping `published_at`)
+/// and enqueue subscriber tasks in the same transaction. Non-draft statuses are left untouched (no second blast).
 /// If there are no confirmed subscribers, flip `queued` → `sent` immediately so the
 /// issue does not remain stuck with an empty delivery queue.
 #[tracing::instrument(skip_all)]
@@ -196,19 +205,15 @@ pub async fn queue_issue_for_delivery(
         "#,
         newsletter_issue_id
     )
-    .fetch_optional(&mut **transaction)
+    .fetch_one(&mut **transaction)
     .await?;
-
-    let Some(status) = status else {
-        return Err(sqlx::Error::RowNotFound);
-    };
 
     match status {
         NewsletterIssueStatus::Draft => {
             sqlx::query!(
                 r#"
                 UPDATE newsletter.newsletter_issues
-                SET status = 'queued'
+                SET status = 'queued', published_at = now()
                 WHERE newsletter_issue_id = $1
                   AND status = 'draft'
                 "#,

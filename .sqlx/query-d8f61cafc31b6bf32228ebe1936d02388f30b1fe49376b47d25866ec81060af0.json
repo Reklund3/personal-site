@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            title,\n            status as \"status: site::domain::NewsletterIssueStatus\"\n        FROM newsletter.newsletter_issues\n        WHERE newsletter_issue_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "status: site::domain::NewsletterIssueStatus",
+        "type_info": {
+          "Custom": {
+            "name": "newsletter.newsletter_issue_status",
+            "kind": {
+              "Enum": [
+                "draft",
+                "queued",
+                "sent",
+                "failed"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "d8f61cafc31b6bf32228ebe1936d02388f30b1fe49376b47d25866ec81060af0"
+}
