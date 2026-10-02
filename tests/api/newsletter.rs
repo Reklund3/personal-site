@@ -1051,6 +1051,9 @@ async fn posting_with_an_unused_issue_id_creates_the_issue_under_that_id() {
     .await
     .unwrap();
     assert_eq!(queued, Some(1));
+
+    test_app.dispatch_all_pending_emails().await;
+    // Mock verifies on Drop that the issue was delivered once
 }
 
 #[tokio::test]
