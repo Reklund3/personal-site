@@ -114,11 +114,20 @@ Migrations in [migrations/](migrations/) — applied automatically in tests, `sq
 manually. Tables: `subscriptions`, `subscription_tokens`, `users`, `newsletter_issues`,
 `issue_delivery_queue`, `idempotency`, `contacts`.
 
+`newsletter_issues.status` is a Postgres enum (`newsletter.newsletter_issue_status`:
+`draft | queued | sent | failed`, mapped as `NewsletterIssueStatus`). Publishing
+saves the submitted content as a `draft` (or updates it while it is still a `draft`, when a
+`newsletter_issue_id` is posted), then moves it to `queued` and enqueues delivery in one
+transaction; content of a non-draft issue is never changed. No UI posts `newsletter_issue_id` yet. `sent` is set when the issue's delivery queue
+is drained (or was empty at enqueue) — meaning every subscriber was *attempted*, not that
+every email API call succeeded. The `failed` value is reserved; nothing writes it today.
+Idempotency keys are kept forever (book-style).
+
 The delivery worker polls `issue_delivery_queue` every 10s when empty and uses
 `FOR UPDATE SKIP LOCKED` so multiple workers can run; dequeue/send/delete happen in one transaction,
-retrying after 1s on error.
+retrying after 1s on error. After each task delete, the worker locks the issue `FOR UPDATE` and
+marks it `sent` if the queue is empty.
 
 ## Known Improvements
 
-From [README.md](README.md): expire idempotency keys; give `issue_delivery_queue` a retry count and
-exponential backoff.
+From [README.md](README.md): give `issue_delivery_queue` a retry count and exponential backoff.

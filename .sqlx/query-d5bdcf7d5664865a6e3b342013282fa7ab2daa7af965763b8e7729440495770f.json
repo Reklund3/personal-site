@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO newsletter.newsletter_issues (\n            newsletter_issue_id,\n            title,\n            text_content,\n            html_content,\n            published_at,\n            status\n        )\n        VALUES ($1, 'Draft title', 'text', '<p>html</p>', now(), 'draft')\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d5bdcf7d5664865a6e3b342013282fa7ab2daa7af965763b8e7729440495770f"
+}

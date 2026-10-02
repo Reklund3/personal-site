@@ -50,9 +50,14 @@ pub async fn try_execute_task(
     Span::current()
         .record("newsletter_issue_id", display(issue_id))
         .record("subscriber_email", display(&email));
+
+    // Enqueue leaves the issue `queued`; `delete_task` flips it to `sent` once the
+    // last queue row is gone. Per-subscriber send errors are logged and skipped
+    // (task removed) and do not mark the issue `failed`. Retries / backoff are
+    // tracked in issue #32.
+    let issue = get_issue(pool, issue_id).await?;
     match UserEmail::parse(email.clone()) {
         Ok(email) => {
-            let issue = get_issue(pool, issue_id).await?;
             if let Err(e) = email_client
                 .send_email(
                     &email,
@@ -130,7 +135,48 @@ async fn delete_task(
     )
     .execute(&mut *transaction)
     .await?;
+    mark_sent_if_drained(&mut transaction, issue_id).await?;
     transaction.commit().await?;
+    Ok(())
+}
+
+/// Lock the issue row (`FOR UPDATE`) and flip `queued` → `sent` when its
+/// delivery queue is empty. Shared by the worker's `delete_task` and publish's
+/// zero-subscriber path so the emptiness predicate lives in one place. The
+/// lock serializes concurrent drain checks so two last-row DELETEs cannot both
+/// observe `NOT EXISTS` as false.
+#[tracing::instrument(skip_all)]
+pub async fn mark_sent_if_drained(
+    transaction: &mut Transaction<'_, Postgres>,
+    issue_id: Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query!(
+        r#"
+        SELECT newsletter_issue_id
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        FOR UPDATE
+        "#,
+        issue_id
+    )
+    .fetch_optional(&mut **transaction)
+    .await?;
+    sqlx::query!(
+        r#"
+        UPDATE newsletter.newsletter_issues
+        SET status = 'sent'
+        WHERE newsletter_issue_id = $1
+          AND status = 'queued'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM newsletter.issue_delivery_queue
+              WHERE newsletter_issue_id = $1
+          )
+        "#,
+        issue_id
+    )
+    .execute(&mut **transaction)
+    .await?;
     Ok(())
 }
 

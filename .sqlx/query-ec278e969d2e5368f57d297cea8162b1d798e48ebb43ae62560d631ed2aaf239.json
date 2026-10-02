@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT newsletter_issue_id\n        FROM newsletter.newsletter_issues\n        WHERE newsletter_issue_id = $1\n        FOR UPDATE NOWAIT\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "newsletter_issue_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ec278e969d2e5368f57d297cea8162b1d798e48ebb43ae62560d631ed2aaf239"
+}
