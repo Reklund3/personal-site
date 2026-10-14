@@ -1,3 +1,6 @@
+-- Reverses the DEFAULT 'draft' that migration 20260926135950_add_newsletter_issue_status
+-- set on newsletter.newsletter_issues.status. PR #33 kept that default on purpose.
+-- Dropping it is a deliberate decision, not a restoration of lost work.
 -- Any code path that inserts into newsletter.newsletter_issues without an
 -- explicit status now fails loudly (NOT NULL violation, safe to retry)
 -- instead of silently defaulting to 'draft' -- the one status this app

@@ -1291,3 +1291,85 @@ async fn newsletter_issues_published_at_orders_by_time() {
     .unwrap();
     assert_eq!(latest, "Later instant");
 }
+
+// Migration 20261006032314 dropped the DEFAULT on newsletter_issues.status so a
+// status-unaware writer fails loudly instead of silently becoming a 'draft' (the
+// one status the app will re-enqueue). Both inserts below share every other
+// column, so the only difference between them is the missing `status`.
+async fn count_newsletter_issues(test_app: &TestApp) -> i64 {
+    sqlx::query_scalar::<_, i64>("SELECT count(*) FROM newsletter.newsletter_issues")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn inserting_a_newsletter_issue_without_a_status_is_rejected() {
+    let test_app = spawn_app().await;
+    let count_before = count_newsletter_issues(&test_app).await;
+
+    let error = sqlx::query(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at
+        )
+        VALUES ($1, 'No status', 'text', '<p>html</p>', now())
+        "#,
+    )
+    .bind(uuid::Uuid::new_v4())
+    .execute(&test_app.pg_pool)
+    .await
+    .expect_err("an insert without a status must not succeed");
+
+    let db_error = error
+        .as_database_error()
+        .unwrap_or_else(|| panic!("expected a database error, got: {error:?}"));
+    // 23502 = not_null_violation
+    assert_eq!(db_error.code().as_deref(), Some("23502"));
+    assert!(
+        db_error.message().contains("\"status\""),
+        "the violation should name the status column, got: {}",
+        db_error.message()
+    );
+    assert_eq!(count_newsletter_issues(&test_app).await, count_before);
+}
+
+#[tokio::test]
+async fn inserting_a_newsletter_issue_with_an_explicit_status_succeeds() {
+    // Positive control for the test above: same columns plus `status`.
+    let test_app = spawn_app().await;
+    let count_before = count_newsletter_issues(&test_app).await;
+    let issue_id = uuid::Uuid::new_v4();
+
+    sqlx::query(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES ($1, 'With status', 'text', '<p>html</p>', now(), 'draft')
+        "#,
+    )
+    .bind(issue_id)
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    assert_eq!(count_newsletter_issues(&test_app).await, count_before + 1);
+    let status = sqlx::query_scalar::<_, String>(
+        "SELECT status::text FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_id)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(status, "draft");
+}
