@@ -1294,8 +1294,8 @@ async fn newsletter_issues_published_at_orders_by_time() {
 
 // Migration 20261006032314 dropped the DEFAULT on newsletter_issues.status so a
 // status-unaware writer fails loudly instead of silently becoming a 'draft' (the
-// one status the app will re-enqueue). Both inserts below share every other
-// column, so the only difference between them is the missing `status`.
+// only status publishing will queue for delivery). Both inserts below share every
+// other column, so the only difference between them is the missing `status`.
 async fn count_newsletter_issues(test_app: &TestApp) -> i64 {
     sqlx::query_scalar::<_, i64>("SELECT count(*) FROM newsletter.newsletter_issues")
         .fetch_one(&test_app.pg_pool)
