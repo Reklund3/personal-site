@@ -1636,3 +1636,207 @@ async fn list_page_shows_drafts_with_edit_links() {
     assert!(html.contains(&format!("/admin/newsletters/{issue_id}/edit")));
     assert!(html.contains("New issue"));
 }
+
+#[tokio::test]
+async fn read_only_issue_view_has_no_publish_form() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES ($1, 'Sent title', 'sent text', '<p>sent</p>', now(), 'sent')
+        "#,
+        issue_id
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(
+        html.contains("read-only"),
+        "expected read-only banner: {html}"
+    );
+    assert!(html.contains("Sent title"));
+    assert!(html.contains("sent text"));
+    assert!(
+        !html.contains("Save draft"),
+        "read-only must not offer Save draft"
+    );
+    assert!(
+        !html.contains(">Publish<"),
+        "read-only must not offer Publish"
+    );
+    assert!(
+        !html.contains(r#"action="/admin/newsletters""#),
+        "read-only must not render a POST form: {html}"
+    );
+    assert!(
+        !html.contains(r#"name="idempotency_key""#),
+        "read-only must not mint an idempotency key field"
+    );
+}
+
+#[tokio::test]
+async fn prefilled_and_listed_titles_are_html_escaped() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let nasty_title = r#""><script>alert(1)</script><"#;
+    let nasty_text = "</textarea><script>alert(1)</script>";
+    let nasty_html = r#"<img src=x onerror="alert(1)">"#;
+    let body = serde_json::json!({
+        "title": nasty_title,
+        "text_content": nasty_text,
+        "html_content": nasty_html,
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    test_app.post_save_newsletter_draft(&body).await;
+
+    let edit = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(
+        edit.contains("&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;"),
+        "title must be attribute-escaped: {edit}"
+    );
+    assert!(
+        edit.contains("&lt;/textarea&gt;&lt;script&gt;alert(1)&lt;/script&gt;"),
+        "textarea body must escape closers: {edit}"
+    );
+    assert!(
+        !edit.contains("</textarea><script>"),
+        "raw textarea breakout must not appear"
+    );
+    assert!(
+        edit.contains("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"),
+        "html_content must be escaped in the form: {edit}"
+    );
+
+    let list = test_app.get_publish_newsletter_html().await;
+    assert!(
+        list.contains("&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;"),
+        "list titles must be escaped: {list}"
+    );
+    assert!(
+        !list.contains("<script>alert(1)</script>"),
+        "raw script must not appear in list HTML"
+    );
+}
+
+#[tokio::test]
+async fn draft_save_does_not_write_idempotency_row() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let key = uuid::Uuid::new_v4();
+    let body = serde_json::json!({
+        "title": "No idem row",
+        "text_content": "x",
+        "html_content": "<p>x</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": key.to_string()
+    });
+    test_app.post_save_newsletter_draft(&body).await;
+
+    let idem_count = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM idempotency WHERE idempotency_key = $1"#,
+        key.to_string()
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(idem_count, Some(0));
+}
+
+#[tokio::test]
+async fn malformed_edit_path_uuid_is_not_a_500() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let response = test_app
+        .api_client
+        .get(format!(
+            "{}/admin/newsletters/not-a-uuid/edit",
+            test_app.address
+        ))
+        .send()
+        .await
+        .expect("request");
+    let status = response.status().as_u16();
+    assert!(
+        status == 400 || status == 404,
+        "malformed path UUID should be 400 or 404, got {status}"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_draft_save_and_publish_never_false_draft_saved_on_non_draft() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&test_app.email_server)
+        .await;
+
+    // Several attempts: tokio scheduling makes the race intermittent.
+    for _ in 0..8 {
+        let issue_id = uuid::Uuid::new_v4();
+        let draft_body = serde_json::json!({
+            "title": "Draft race",
+            "text_content": "draft plain",
+            "html_content": "<p>draft</p>",
+            "newsletter_issue_id": issue_id.to_string(),
+            "idempotency_key": uuid::Uuid::new_v4().to_string()
+        });
+        let publish_body = serde_json::json!({
+            "title": "Publish race",
+            "text_content": "publish plain",
+            "html_content": "<p>publish</p>",
+            "newsletter_issue_id": issue_id.to_string(),
+            "idempotency_key": uuid::Uuid::new_v4().to_string()
+        });
+
+        let draft_fut = test_app.post_save_newsletter_draft(&draft_body);
+        let publish_fut = test_app.post_publish_newsletter(&publish_body);
+        let (draft_resp, publish_resp) = tokio::join!(draft_fut, publish_fut);
+
+        assert_eq!(draft_resp.status().as_u16(), 303);
+        assert_eq!(publish_resp.status().as_u16(), 303);
+
+        let status = sqlx::query_scalar!(
+            r#"
+            SELECT status as "status: site::domain::NewsletterIssueStatus"
+            FROM newsletter.newsletter_issues
+            WHERE newsletter_issue_id = $1
+            "#,
+            issue_id
+        )
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+
+        // Follow the draft redirect (flash cookie) and ensure we never claim
+        // "Draft saved" when the row is no longer a draft.
+        let html = test_app.get_newsletter_edit_html(issue_id).await;
+        if status != site::domain::NewsletterIssueStatus::Draft {
+            assert!(
+                !html.contains("Draft saved."),
+                "false Draft saved flash while status={status:?}: {html}"
+            );
+        }
+    }
+}

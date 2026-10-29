@@ -18,7 +18,9 @@ fn escape_attr(s: &str) -> String {
 fn flash_html(flash_messages: &IncomingFlashMessages) -> String {
     let mut msg_html = String::new();
     for m in flash_messages.iter() {
-        writeln!(msg_html, "<p><i>{}</i></p>", m.content()).unwrap();
+        // Flashes are server-authored today; escape anyway so a future
+        // user-influenced message cannot become HTML.
+        writeln!(msg_html, "<p><i>{}</i></p>", escape_attr(m.content())).unwrap();
     }
     msg_html
 }
@@ -181,7 +183,6 @@ pub async fn edit_newsletter_form(
             .body("Newsletter issue not found."));
     };
 
-    let idempotency_key = Uuid::new_v4();
     let mode = match row.status {
         NewsletterIssueStatus::Draft => FormMode::Editable,
         other => FormMode::ReadOnly {
@@ -191,6 +192,11 @@ pub async fn edit_newsletter_form(
     let title_text = match mode {
         FormMode::Editable => "Edit Draft",
         FormMode::ReadOnly { .. } => "Newsletter Issue",
+    };
+    // Only editable forms need a publish idempotency key.
+    let idempotency_key = match mode {
+        FormMode::Editable => Uuid::new_v4(),
+        FormMode::ReadOnly { .. } => Uuid::nil(),
     };
 
     Ok(HttpResponse::Ok()
@@ -237,16 +243,54 @@ fn render_issue_form(
         (FormMode::Editable, None) => String::new(),
     };
 
-    let (readonly, buttons) = match mode {
-        FormMode::Editable => (
-            "",
+    // Read-only issues must not render a POST form: `readonly` inputs can still
+    // submit via Enter in some browsers, which would mint a forever idempotency
+    // row for an AlreadyHandled publish. Show plain fields instead.
+    let body_inner = match mode {
+        FormMode::Editable => format!(
             r#"
+    <form action="/admin/newsletters" method="post">
+        <label>Title:<br>
+            <input
+                type="text"
+                placeholder="Enter the issue title"
+                name="title"
+                value="{title_v}"
+            >
+        </label>
+        <br>
+        <label>Plain text content:<br>
+            <textarea
+                placeholder="Enter the content in plain text"
+                name="text_content"
+                rows="20"
+                cols="50"
+            >{text_v}</textarea>
+        </label>
+        <br>
+        <label>HTML content:<br>
+            <textarea
+                placeholder="Enter the content in HTML format"
+                name="html_content"
+                rows="20"
+                cols="50"
+            >{html_v}</textarea>
+        </label>
+        <br>
+        <input hidden type="text" name="idempotency_key" value="{idempotency_key}">
+        <input hidden type="text" name="newsletter_issue_id" value="{issue_id}">
         <button type="submit" formaction="/admin/newsletters/drafts" formmethod="post">Save draft</button>
         <button type="submit">Publish</button>
-"#
-            .to_string(),
+    </form>"#
         ),
-        FormMode::ReadOnly { .. } => ("readonly", String::new()),
+        FormMode::ReadOnly { .. } => format!(
+            r#"
+    <p><b>Title:</b> {title_v}</p>
+    <p><b>Plain text content:</b></p>
+    <pre>{text_v}</pre>
+    <p><b>HTML content:</b></p>
+    <pre>{html_v}</pre>"#
+        ),
     };
 
     format!(
@@ -260,41 +304,7 @@ fn render_issue_form(
     {msg_html}
     <h1>{page_title}</h1>
     {status_banner}
-    <form action="/admin/newsletters" method="post">
-        <label>Title:<br>
-            <input
-                type="text"
-                placeholder="Enter the issue title"
-                name="title"
-                value="{title_v}"
-                {readonly}
-            >
-        </label>
-        <br>
-        <label>Plain text content:<br>
-            <textarea
-                placeholder="Enter the content in plain text"
-                name="text_content"
-                rows="20"
-                cols="50"
-                {readonly}
-            >{text_v}</textarea>
-        </label>
-        <br>
-        <label>HTML content:<br>
-            <textarea
-                placeholder="Enter the content in HTML format"
-                name="html_content"
-                rows="20"
-                cols="50"
-                {readonly}
-            >{html_v}</textarea>
-        </label>
-        <br>
-        <input hidden type="text" name="idempotency_key" value="{idempotency_key}">
-        <input hidden type="text" name="newsletter_issue_id" value="{issue_id}">
-        {buttons}
-    </form>
+    {body_inner}
     <p><a href="/admin/newsletters">&lt;- Newsletters</a></p>
 </body>
 </html>"#

@@ -120,7 +120,7 @@ manually. Tables: `subscriptions`, `subscription_tokens`, `users`, `newsletter_i
 (and edit drafts at `/admin/newsletters/{id}/edit`): the form mints a `newsletter_issue_id`
 plus a fresh publish idempotency key, with **Save draft** (`POST /admin/newsletters/drafts`,
 upsert while status is `draft`, no idempotency row) and **Publish** (`POST /admin/newsletters`,
-draft→queued + enqueue in one transaction). Non-draft issues render read-only; saving over
+draft→queued + enqueue in one transaction). Non-draft issues render read-only (no POST form); saving over
 them is rejected without changes. Content of a non-draft issue is never changed. `sent` is
 set when the issue's delivery queue is drained (or was empty at enqueue) — meaning every
 subscriber was *attempted*, not that every email API call succeeded. The `failed` value is

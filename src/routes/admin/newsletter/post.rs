@@ -225,6 +225,35 @@ pub async fn save_newsletter_draft(
     .await
     .context("Failed to store newsletter draft")
     .map_err(e500)?;
+
+    // Re-read under the same txn. Covers the race where FOR UPDATE saw no row,
+    // then a concurrent publish inserted+queued before our upsert: ON CONFLICT
+    // ... WHERE status = 'draft' writes nothing, but we must not flash success.
+    let status_after = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(e500)?;
+
+    if status_after != Some(NewsletterIssueStatus::Draft) {
+        transaction
+            .rollback()
+            .await
+            .context("Failed to rollback draft-save after lost race")
+            .map_err(e500)?;
+        FlashMessage::error(
+            "This newsletter issue is no longer a draft and cannot be overwritten.",
+        )
+        .send();
+        return Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")));
+    }
+
     transaction
         .commit()
         .await
