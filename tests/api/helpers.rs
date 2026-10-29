@@ -172,6 +172,45 @@ impl TestApp {
             .expect("Failed to execute request.")
     }
 
+    pub async fn get_newsletter_new_form(&self) -> reqwest::Response {
+        self.api_client
+            .get(&format!("{}/admin/newsletters/new", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub async fn get_newsletter_edit(&self, issue_id: uuid::Uuid) -> reqwest::Response {
+        self.api_client
+            .get(&format!(
+                "{}/admin/newsletters/{}/edit",
+                &self.address, issue_id
+            ))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub async fn get_newsletter_edit_html(&self, issue_id: uuid::Uuid) -> String {
+        self.get_newsletter_edit(issue_id)
+            .await
+            .text()
+            .await
+            .unwrap()
+    }
+
+    pub async fn post_save_newsletter_draft<Body>(&self, body: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.api_client
+            .post(&format!("{}/admin/newsletters/drafts", &self.address))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
     pub async fn get_resume(&self) -> reqwest::Response {
         self.api_client
             .get(&format!("{}/resume", &self.address))

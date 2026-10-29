@@ -1373,3 +1373,266 @@ async fn inserting_a_newsletter_issue_with_an_explicit_status_succeeds() {
     .unwrap();
     assert_eq!(status, "draft");
 }
+
+#[tokio::test]
+async fn save_draft_enqueues_nothing_and_leaves_status_draft() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    Mock::given(any())
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&test_app.email_server)
+        .await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let body = serde_json::json!({
+        "title": "Draft only",
+        "text_content": "draft plain",
+        "html_content": "<p>draft html</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    let response = test_app.post_save_newsletter_draft(&body).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(html.contains("Draft saved."));
+    assert!(html.contains("Draft only"));
+    assert!(html.contains("draft plain"));
+
+    let status = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: site::domain::NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(status, site::domain::NewsletterIssueStatus::Draft);
+
+    let queued = sqlx::query_scalar!(
+        r#"
+        SELECT COUNT(*) FROM newsletter.issue_delivery_queue
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(queued, Some(0));
+}
+
+#[tokio::test]
+async fn save_edit_then_publish_enqueues_once_with_edited_content() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+
+    let save_body = serde_json::json!({
+        "title": "First title",
+        "text_content": "first plain",
+        "html_content": "<p>first</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    let response = test_app.post_save_newsletter_draft(&save_body).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+
+    let edit_body = serde_json::json!({
+        "title": "Edited title",
+        "text_content": "edited plain",
+        "html_content": "<p>edited</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    let response = test_app.post_save_newsletter_draft(&edit_body).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let publish_body = serde_json::json!({
+        "title": "Edited title",
+        "text_content": "edited plain",
+        "html_content": "<p>edited</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    let response = test_app.post_publish_newsletter(&publish_body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+
+    test_app.dispatch_all_pending_emails().await;
+
+    // Confirmation email from create_confirmed_subscriber is also on the mock
+    // server; find the newsletter send by subject.
+    let requests = test_app.email_server.received_requests().await.unwrap();
+    let newsletter = requests
+        .iter()
+        .map(|r| serde_json::from_slice::<serde_json::Value>(&r.body).unwrap())
+        .find(|b| b["Subject"].as_str() == Some("Edited title"))
+        .expect("newsletter email with edited title");
+    assert_eq!(newsletter["TextBody"].as_str().unwrap(), "edited plain");
+    assert_eq!(newsletter["HtmlBody"].as_str().unwrap(), "<p>edited</p>");
+
+    let row = sqlx::query!(
+        r#"
+        SELECT title, text_content, html_content,
+               status as "status: site::domain::NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(row.title, "Edited title");
+    assert_eq!(row.text_content, "edited plain");
+    assert_eq!(row.html_content, "<p>edited</p>");
+    assert_eq!(row.status, site::domain::NewsletterIssueStatus::Sent);
+
+    let queue_count =
+        sqlx::query_scalar!(r#"SELECT COUNT(*) FROM newsletter.issue_delivery_queue"#)
+            .fetch_one(&test_app.pg_pool)
+            .await
+            .unwrap();
+    assert_eq!(queue_count, Some(0));
+}
+
+#[tokio::test]
+async fn save_draft_over_queued_issue_is_rejected_without_changes() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES ($1, 'Queued title', 'queued text', '<p>queued</p>', now(), 'queued')
+        "#,
+        issue_id
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    let body = serde_json::json!({
+        "title": "Hijack attempt",
+        "text_content": "should not land",
+        "html_content": "<p>nope</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    let response = test_app.post_save_newsletter_draft(&body).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(
+        html.contains("no longer a draft"),
+        "expected rejection flash, got: {html}"
+    );
+    assert!(html.contains("Queued title"));
+    assert!(!html.contains("Hijack attempt"));
+
+    let row = sqlx::query!(
+        r#"
+        SELECT title, text_content, status as "status: site::domain::NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(row.title, "Queued title");
+    assert_eq!(row.text_content, "queued text");
+    assert_eq!(row.status, site::domain::NewsletterIssueStatus::Queued);
+}
+
+#[tokio::test]
+async fn edit_of_unknown_issue_returns_404() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let response = test_app.get_newsletter_edit(uuid::Uuid::new_v4()).await;
+    assert_eq!(response.status().as_u16(), 404);
+}
+
+#[tokio::test]
+async fn draft_routes_require_login() {
+    let app = spawn_app().await;
+    let issue_id = uuid::Uuid::new_v4();
+
+    let response = app.get_newsletter_new_form().await;
+    assert_is_redirect_to(&response, "/login");
+
+    let response = app.get_newsletter_edit(issue_id).await;
+    assert_is_redirect_to(&response, "/login");
+
+    let body = serde_json::json!({
+        "title": "x",
+        "text_content": "y",
+        "html_content": "z",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    let response = app.post_save_newsletter_draft(&body).await;
+    assert_is_redirect_to(&response, "/login");
+}
+
+#[tokio::test]
+async fn new_form_includes_issue_id_and_both_buttons() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let html = test_app
+        .get_newsletter_new_form()
+        .await
+        .text()
+        .await
+        .unwrap();
+    assert!(html.contains(r#"name="newsletter_issue_id""#));
+    assert!(html.contains("Save draft"));
+    assert!(html.contains("Publish"));
+    assert!(html.contains(r#"formaction="/admin/newsletters/drafts""#));
+}
+
+#[tokio::test]
+async fn list_page_shows_drafts_with_edit_links() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let body = serde_json::json!({
+        "title": "Listed draft",
+        "text_content": "plain",
+        "html_content": "<p>x</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    test_app.post_save_newsletter_draft(&body).await;
+
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(html.contains("Listed draft"));
+    assert!(html.contains(&format!("/admin/newsletters/{issue_id}/edit")));
+    assert!(html.contains("New issue"));
+}

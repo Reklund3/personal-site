@@ -147,13 +147,101 @@ fn flash_for_idempotent_replay(saved_response: &HttpResponse) {
     }
 }
 
+#[derive(serde::Deserialize)]
+pub struct DraftFormData {
+    title: String,
+    text_content: String,
+    html_content: String,
+    newsletter_issue_id: String,
+    /// Present on the shared form; ignored — draft upsert needs no idempotency row.
+    #[serde(default, rename = "idempotency_key")]
+    _idempotency_key: Option<String>,
+}
+
+/// Persist (or update) a draft without enqueueing delivery. Naturally idempotent via
+/// upsert-on-draft; saving over a non-draft issue changes nothing and flashes an error.
+#[tracing::instrument(
+    name = "Save newsletter draft",
+    skip_all,
+    fields(user_id=%&*user_id)
+)]
+pub async fn save_newsletter_draft(
+    form: web::Form<DraftFormData>,
+    pool: web::Data<PgPool>,
+    user_id: web::ReqData<UserId>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let _user_id = user_id.into_inner();
+    let DraftFormData {
+        title,
+        text_content,
+        html_content,
+        newsletter_issue_id,
+        _idempotency_key: _,
+    } = form.0;
+    let issue_id = Uuid::parse_str(&newsletter_issue_id).map_err(e400)?;
+
+    let mut transaction = pool
+        .begin()
+        .await
+        .context("Failed to begin draft-save transaction")
+        .map_err(e500)?;
+
+    let existing = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        FOR UPDATE
+        "#,
+        issue_id
+    )
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(e500)?;
+
+    if let Some(status) = existing
+        && status != NewsletterIssueStatus::Draft
+    {
+        // Drop the txn without writing; content stays untouched.
+        transaction
+            .rollback()
+            .await
+            .context("Failed to rollback draft-save transaction")
+            .map_err(e500)?;
+        FlashMessage::error(
+            "This newsletter issue is no longer a draft and cannot be overwritten.",
+        )
+        .send();
+        return Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")));
+    }
+
+    save_newsletter_issue(
+        &mut transaction,
+        issue_id,
+        &title,
+        &text_content,
+        &html_content,
+    )
+    .await
+    .context("Failed to store newsletter draft")
+    .map_err(e500)?;
+    transaction
+        .commit()
+        .await
+        .context("Failed to commit newsletter draft")
+        .map_err(e500)?;
+
+    FlashMessage::info("Draft saved.").send();
+    Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")))
+}
+
 /// Insert the issue as a `draft` under `newsletter_issue_id`, or, if that id
 /// already exists, overwrite its content — but only while it is still a
 /// `draft`. Content of a `queued` / `sent` / `failed` issue is never touched:
 /// the worker re-reads it for every subscriber, so editing mid-delivery would
 /// send different content to different subscribers.
 #[tracing::instrument(skip_all)]
-async fn save_newsletter_issue(
+pub(crate) async fn save_newsletter_issue(
     transaction: &mut Transaction<'_, Postgres>,
     newsletter_issue_id: Uuid,
     title: &str,

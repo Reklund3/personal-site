@@ -184,7 +184,13 @@ async fn run(
                     .wrap(middleware::DefaultHeaders::new().add(("Cache-Control", "no-store")))
                     .route("/dashboard", web::get().to(admin_dashboard))
                     .route("/contacts", web::get().to(admin_contacts))
-                    .route("/newsletters", web::get().to(publish_newsletter_form))
+                    .route("/newsletters", web::get().to(list_newsletters))
+                    .route("/newsletters/new", web::get().to(publish_newsletter_form))
+                    .route(
+                        "/newsletters/{newsletter_issue_id}/edit",
+                        web::get().to(edit_newsletter_form),
+                    )
+                    .route("/newsletters/drafts", web::post().to(save_newsletter_draft))
                     .route("/newsletters", web::post().to(publish_newsletter))
                     .route("/password", web::get().to(change_password_form))
                     .route("/password", web::post().to(change_password))
