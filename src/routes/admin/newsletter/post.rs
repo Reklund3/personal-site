@@ -393,7 +393,11 @@ async fn insert_newsletter_issue(
     text_content: &str,
     html_content: &str,
 ) -> Result<bool, sqlx::Error> {
-    let result = sqlx::query!(
+    // Bind via `Executor::execute` (same shape as `save_newsletter_issue` /
+    // idempotency inserts) so a failed `query!` expansion (type `!`, e.g. when
+    // the SARIF clippy job has DATABASE_URL but no Postgres) coerces as an
+    // argument instead of having `.rows_affected()` called on `!`.
+    let query = sqlx::query!(
         r#"
         INSERT INTO newsletter.newsletter_issues (
             newsletter_issue_id,
@@ -410,9 +414,8 @@ async fn insert_newsletter_issue(
         title,
         text_content,
         html_content
-    )
-    .execute(&mut **transaction)
-    .await?;
+    );
+    let result = transaction.execute(query).await?;
     Ok(result.rows_affected() > 0)
 }
 
