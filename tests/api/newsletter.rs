@@ -426,14 +426,10 @@ async fn publish_of_already_handled_issue_flashes_and_does_not_enqueue() {
         .await;
 
     let newsletter_request_body = serde_json::json!({
-        "title": "ignored",
-        "text_content": "ignored",
-        "html_content": "<p>ignored</p>",
         "idempotency_key": uuid::Uuid::new_v4().to_string(),
-        "newsletter_issue_id": issue_id.to_string()
     });
     let response = test_app
-        .post_publish_newsletter(&newsletter_request_body)
+        .post_publish_saved_newsletter(issue_id, &newsletter_request_body)
         .await;
     assert_is_redirect_to(&response, "/admin/newsletters");
 
@@ -482,15 +478,11 @@ async fn idempotent_replay_of_already_handled_issue_keeps_already_handled_flash(
     .unwrap();
 
     let newsletter_request_body = serde_json::json!({
-        "title": "ignored",
-        "text_content": "ignored",
-        "html_content": "<p>ignored</p>",
         "idempotency_key": uuid::Uuid::new_v4().to_string(),
-        "newsletter_issue_id": issue_id.to_string()
     });
 
     let response = test_app
-        .post_publish_newsletter(&newsletter_request_body)
+        .post_publish_saved_newsletter(issue_id, &newsletter_request_body)
         .await;
     assert_is_redirect_to(&response, "/admin/newsletters");
     let html_page = test_app.get_publish_newsletter_html().await;
@@ -498,7 +490,7 @@ async fn idempotent_replay_of_already_handled_issue_keeps_already_handled_flash(
 
     // Replay with the same idempotency key must not flash the success message.
     let response = test_app
-        .post_publish_newsletter(&newsletter_request_body)
+        .post_publish_saved_newsletter(issue_id, &newsletter_request_body)
         .await;
     assert_is_redirect_to(&response, "/admin/newsletters");
     let html_page = test_app.get_publish_newsletter_html().await;
@@ -542,26 +534,22 @@ async fn idempotent_replay_flash_follows_first_outcome_not_replay_body() {
 
     let key_a = uuid::Uuid::new_v4().to_string();
     let first_a = serde_json::json!({
-        "title": "ignored",
-        "text_content": "ignored",
-        "html_content": "<p>ignored</p>",
         "idempotency_key": key_a,
-        "newsletter_issue_id": sent_id.to_string()
     });
-    let response = test_app.post_publish_newsletter(&first_a).await;
+    let response = test_app
+        .post_publish_saved_newsletter(sent_id, &first_a)
+        .await;
     assert_is_redirect_to(&response, "/admin/newsletters");
     let html_page = test_app.get_publish_newsletter_html().await;
     assert!(html_page.contains("already been handled"));
 
-    // Replay with a mismatched body: no newsletter_issue_id (would have been
-    // treated as a "new publish ⇒ success" under the old body-keyed logic).
+    // Replay with the same key (body is only the key for publish-saved).
     let replay_a = serde_json::json!({
-        "title": "different",
-        "text_content": "different",
-        "html_content": "<p>different</p>",
-        "idempotency_key": key_a
+        "idempotency_key": key_a,
     });
-    let response = test_app.post_publish_newsletter(&replay_a).await;
+    let response = test_app
+        .post_publish_saved_newsletter(sent_id, &replay_a)
+        .await;
     assert_is_redirect_to(&response, "/admin/newsletters");
     let html_page = test_app.get_publish_newsletter_html().await;
     assert!(
@@ -737,7 +725,7 @@ async fn zero_confirmed_subscribers_marks_issue_sent_on_publish() {
 }
 
 #[tokio::test]
-async fn http_accept_of_existing_draft_updates_its_content_and_queues_it() {
+async fn publish_saved_queues_stored_draft_content_unchanged() {
     let test_app = spawn_app().await;
     create_confirmed_subscriber(&test_app).await;
     test_app.test_user.login(&test_app).await;
@@ -768,15 +756,11 @@ async fn http_accept_of_existing_draft_updates_its_content_and_queues_it() {
         .mount(&test_app.email_server)
         .await;
 
-    let newsletter_request_body = serde_json::json!({
-        "title": "Edited title",
-        "text_content": "edited text",
-        "html_content": "<p>edited</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string(),
-        "newsletter_issue_id": issue_id.to_string()
-    });
     let response = test_app
-        .post_publish_newsletter(&newsletter_request_body)
+        .post_publish_saved_newsletter(
+            issue_id,
+            &serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+        )
         .await;
     assert_is_redirect_to(&response, "/admin/newsletters");
 
@@ -812,8 +796,7 @@ async fn http_accept_of_existing_draft_updates_its_content_and_queues_it() {
     .unwrap();
     assert_eq!(queued, Some(1));
 
-    // The submitted content replaces the draft's, and publishing stamps
-    // published_at (it was backdated two days when the draft was created).
+    // Publish-by-id must queue the STORED draft content, not a request body.
     let issue = sqlx::query!(
         r#"
         SELECT
@@ -829,25 +812,12 @@ async fn http_accept_of_existing_draft_updates_its_content_and_queues_it() {
     .fetch_one(&test_app.pg_pool)
     .await
     .unwrap();
-    assert_eq!(issue.title, "Edited title");
-    assert_eq!(issue.text_content, "edited text");
-    assert_eq!(issue.html_content, "<p>edited</p>");
+    assert_eq!(issue.title, "Draft to accept");
+    assert_eq!(issue.text_content, "draft text");
+    assert_eq!(issue.html_content, "<p>draft</p>");
     assert!(issue.published_recently);
 
     test_app.dispatch_all_pending_emails().await;
-
-    let status = sqlx::query_scalar!(
-        r#"
-        SELECT status as "status: site::domain::NewsletterIssueStatus"
-        FROM newsletter.newsletter_issues
-        WHERE newsletter_issue_id = $1
-        "#,
-        issue_id
-    )
-    .fetch_one(&test_app.pg_pool)
-    .await
-    .unwrap();
-    assert_eq!(status, site::domain::NewsletterIssueStatus::Sent);
 }
 
 #[tokio::test]
@@ -1080,8 +1050,8 @@ async fn resubmitting_a_queued_issue_id_does_not_change_its_content() {
     let response = test_app.post_publish_newsletter(&first).await;
     assert_is_redirect_to(&response, "/admin/newsletters");
 
-    // Different idempotency key, same issue id, different content: the issue is
-    // already queued, so nothing is updated and nothing is enqueued again.
+    // Different idempotency key, same issue id, different content: compose
+    // Publish is insert-only, so it refuses without overwriting or re-enqueueing.
     let second = serde_json::json!({
         "title": "Changed title",
         "text_content": "changed text",
@@ -1090,9 +1060,12 @@ async fn resubmitting_a_queued_issue_id_does_not_change_its_content() {
         "newsletter_issue_id": issue_id.to_string()
     });
     let response = test_app.post_publish_newsletter(&second).await;
-    assert_is_redirect_to(&response, "/admin/newsletters");
-    let html_page = test_app.get_publish_newsletter_html().await;
-    assert!(html_page.contains("already been handled"));
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+    let html_page = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(
+        html_page.contains("already exists"),
+        "expected already-exists flash, got: {html_page}"
+    );
 
     let title = sqlx::query_scalar!(
         r#"
@@ -1456,6 +1429,27 @@ async fn save_edit_then_publish_enqueues_once_with_edited_content() {
     let response = test_app.post_save_newsletter_draft(&edit_body).await;
     assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
 
+    // 2b: edit step must persist before any publish.
+    let mid = sqlx::query!(
+        r#"
+        SELECT title, text_content, html_content,
+               status as "status: site::domain::NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(mid.title, "Edited title");
+    assert_eq!(mid.text_content, "edited plain");
+    assert_eq!(mid.html_content, "<p>edited</p>");
+    assert_eq!(mid.status, site::domain::NewsletterIssueStatus::Draft);
+    let edit_html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(edit_html.contains("Edited title"));
+    assert!(edit_html.contains("edited plain"));
+
     Mock::given(path("/email"))
         .and(method("POST"))
         .respond_with(ResponseTemplate::new(200))
@@ -1463,14 +1457,12 @@ async fn save_edit_then_publish_enqueues_once_with_edited_content() {
         .mount(&test_app.email_server)
         .await;
 
-    let publish_body = serde_json::json!({
-        "title": "Edited title",
-        "text_content": "edited plain",
-        "html_content": "<p>edited</p>",
-        "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
-    });
-    let response = test_app.post_publish_newsletter(&publish_body).await;
+    let response = test_app
+        .post_publish_saved_newsletter(
+            issue_id,
+            &serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+        )
+        .await;
     assert_is_redirect_to(&response, "/admin/newsletters");
 
     test_app.dispatch_all_pending_emails().await;
@@ -1597,6 +1589,14 @@ async fn draft_routes_require_login() {
     });
     let response = app.post_save_newsletter_draft(&body).await;
     assert_is_redirect_to(&response, "/login");
+
+    let response = app
+        .post_publish_saved_newsletter(
+            issue_id,
+            &serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+        )
+        .await;
+    assert_is_redirect_to(&response, "/login");
 }
 
 #[tokio::test]
@@ -1614,6 +1614,50 @@ async fn new_form_includes_issue_id_and_both_buttons() {
     assert!(html.contains("Save draft"));
     assert!(html.contains("Publish"));
     assert!(html.contains(r#"formaction="/admin/newsletters/drafts""#));
+    assert!(html.contains(r#"action="/admin/newsletters""#));
+}
+
+#[tokio::test]
+async fn edit_form_wires_path_id_and_has_no_content_publish() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    test_app
+        .post_save_newsletter_draft(&serde_json::json!({
+            "title": "Wire me",
+            "text_content": "x",
+            "html_content": "<p>x</p>",
+            "newsletter_issue_id": issue_id.to_string(),
+            "idempotency_key": uuid::Uuid::new_v4().to_string()
+        }))
+        .await;
+
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(
+        html.contains(&format!(r#"name="newsletter_issue_id" value="{issue_id}""#)),
+        "edit form must reuse path id: {html}"
+    );
+    assert!(
+        html.contains(&format!(
+            r#"action="/admin/newsletters/{issue_id}/publish""#
+        )),
+        "edit page needs publish-by-id form: {html}"
+    );
+    assert!(
+        html.contains(r#"name="idempotency_key""#),
+        "publish-by-id form needs an idempotency key"
+    );
+    // Content form posts only to drafts — never compose Publish with body fields.
+    assert!(html.contains(r#"action="/admin/newsletters/drafts""#));
+    assert!(
+        !html.contains(r#"action="/admin/newsletters""#),
+        "edit page must not content-publish to POST /admin/newsletters: {html}"
+    );
+    assert!(
+        !html.contains(r#"formaction="/admin/newsletters""#),
+        "edit page must not formaction compose publish"
+    );
 }
 
 #[tokio::test]
@@ -1622,6 +1666,7 @@ async fn list_page_shows_drafts_with_edit_links() {
     test_app.test_user.login(&test_app).await;
 
     let issue_id = uuid::Uuid::new_v4();
+    let sent_id = uuid::Uuid::new_v4();
     let body = serde_json::json!({
         "title": "Listed draft",
         "text_content": "plain",
@@ -1630,11 +1675,33 @@ async fn list_page_shows_drafts_with_edit_links() {
         "idempotency_key": uuid::Uuid::new_v4().to_string()
     });
     test_app.post_save_newsletter_draft(&body).await;
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id, title, text_content, html_content, published_at, status
+        ) VALUES ($1, 'Listed sent', 't', '<p>t</p>', now(), 'sent')
+        "#,
+        sent_id
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
 
     let html = test_app.get_publish_newsletter_html().await;
-    assert!(html.contains("Listed draft"));
-    assert!(html.contains(&format!("/admin/newsletters/{issue_id}/edit")));
     assert!(html.contains("New issue"));
+    let drafts_at = html.find("<h2>Drafts</h2>").expect("Drafts heading");
+    let recent_at = html.find("<h2>Recent issues</h2>").expect("Recent heading");
+    assert!(drafts_at < recent_at);
+    let drafts_section = &html[drafts_at..recent_at];
+    let recent_section = &html[recent_at..];
+    assert!(drafts_section.contains("Listed draft"));
+    assert!(drafts_section.contains(&format!("/admin/newsletters/{issue_id}/edit")));
+    assert!(drafts_section.contains(&format!(
+        r#"action="/admin/newsletters/{issue_id}/publish""#
+    )));
+    assert!(!drafts_section.contains("Listed sent"));
+    assert!(recent_section.contains("Listed sent"));
+    assert!(!recent_section.contains("Listed draft"));
 }
 
 #[tokio::test]
@@ -1683,6 +1750,10 @@ async fn read_only_issue_view_has_no_publish_form() {
     assert!(
         !html.contains(r#"name="idempotency_key""#),
         "read-only must not mint an idempotency key field"
+    );
+    assert!(
+        !html.contains("/publish"),
+        "read-only must not offer publish-by-id"
     );
 }
 
@@ -1747,7 +1818,18 @@ async fn draft_save_does_not_write_idempotency_row() {
         "newsletter_issue_id": issue_id.to_string(),
         "idempotency_key": key.to_string()
     });
-    test_app.post_save_newsletter_draft(&body).await;
+    let response = test_app.post_save_newsletter_draft(&body).await;
+    assert_eq!(response.status().as_u16(), 303);
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+
+    let draft_count = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1"#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(draft_count, Some(1));
 
     let idem_count = sqlx::query_scalar!(
         r#"SELECT COUNT(*) FROM idempotency WHERE idempotency_key = $1"#,
@@ -1781,7 +1863,7 @@ async fn malformed_edit_path_uuid_is_not_a_500() {
 }
 
 #[tokio::test]
-async fn concurrent_draft_save_and_publish_never_false_draft_saved_on_non_draft() {
+async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_draft() {
     let test_app = spawn_app().await;
     create_confirmed_subscriber(&test_app).await;
     test_app.test_user.login(&test_app).await;
@@ -1792,9 +1874,20 @@ async fn concurrent_draft_save_and_publish_never_false_draft_saved_on_non_draft(
         .mount(&test_app.email_server)
         .await;
 
-    // Several attempts: tokio scheduling makes the race intermittent.
+    // Seed a draft first so publish-saved has a row to lock; then race a content
+    // save against publish-by-id. Whichever wins, queued content must equal the
+    // committed row (no mixed/stale compose body), and a late save is rejected.
     for _ in 0..8 {
         let issue_id = uuid::Uuid::new_v4();
+        let seed = serde_json::json!({
+            "title": "Seed title",
+            "text_content": "seed plain",
+            "html_content": "<p>seed</p>",
+            "newsletter_issue_id": issue_id.to_string(),
+            "idempotency_key": uuid::Uuid::new_v4().to_string()
+        });
+        test_app.post_save_newsletter_draft(&seed).await;
+
         let draft_body = serde_json::json!({
             "title": "Draft race",
             "text_content": "draft plain",
@@ -1803,23 +1896,20 @@ async fn concurrent_draft_save_and_publish_never_false_draft_saved_on_non_draft(
             "idempotency_key": uuid::Uuid::new_v4().to_string()
         });
         let publish_body = serde_json::json!({
-            "title": "Publish race",
-            "text_content": "publish plain",
-            "html_content": "<p>publish</p>",
-            "newsletter_issue_id": issue_id.to_string(),
             "idempotency_key": uuid::Uuid::new_v4().to_string()
         });
 
         let draft_fut = test_app.post_save_newsletter_draft(&draft_body);
-        let publish_fut = test_app.post_publish_newsletter(&publish_body);
+        let publish_fut = test_app.post_publish_saved_newsletter(issue_id, &publish_body);
         let (draft_resp, publish_resp) = tokio::join!(draft_fut, publish_fut);
 
         assert_eq!(draft_resp.status().as_u16(), 303);
         assert_eq!(publish_resp.status().as_u16(), 303);
 
-        let status = sqlx::query_scalar!(
+        let row = sqlx::query!(
             r#"
-            SELECT status as "status: site::domain::NewsletterIssueStatus"
+            SELECT title, text_content, html_content,
+                   status as "status: site::domain::NewsletterIssueStatus"
             FROM newsletter.newsletter_issues
             WHERE newsletter_issue_id = $1
             "#,
@@ -1829,14 +1919,238 @@ async fn concurrent_draft_save_and_publish_never_false_draft_saved_on_non_draft(
         .await
         .unwrap();
 
-        // Follow the draft redirect (flash cookie) and ensure we never claim
-        // "Draft saved" when the row is no longer a draft.
+        // Content must be one of the committed writers — never a mix, and never
+        // inventing compose-style publish body fields (there are none).
+        let allowed = [
+            ("Seed title", "seed plain", "<p>seed</p>"),
+            ("Draft race", "draft plain", "<p>draft</p>"),
+        ];
+        assert!(
+            allowed.contains(&(
+                row.title.as_str(),
+                row.text_content.as_str(),
+                row.html_content.as_str()
+            )),
+            "unexpected mixed/unknown content: title={:?} text={:?} html={:?}",
+            row.title,
+            row.text_content,
+            row.html_content
+        );
+
         let html = test_app.get_newsletter_edit_html(issue_id).await;
-        if status != site::domain::NewsletterIssueStatus::Draft {
+        if row.status != site::domain::NewsletterIssueStatus::Draft {
             assert!(
                 !html.contains("Draft saved."),
-                "false Draft saved flash while status={status:?}: {html}"
+                "false Draft saved flash while status={:?}: {html}",
+                row.status
             );
+            // Late save after queue must be rejected.
+            let late = test_app
+                .post_save_newsletter_draft(&serde_json::json!({
+                    "title": "Too late",
+                    "text_content": "nope",
+                    "html_content": "<p>nope</p>",
+                    "newsletter_issue_id": issue_id.to_string(),
+                    "idempotency_key": uuid::Uuid::new_v4().to_string()
+                }))
+                .await;
+            assert_eq!(late.status().as_u16(), 303);
+            let after = sqlx::query_scalar!(
+                r#"SELECT title FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1"#,
+                issue_id
+            )
+            .fetch_one(&test_app.pg_pool)
+            .await
+            .unwrap();
+            assert_ne!(after, "Too late");
         }
     }
+}
+
+#[tokio::test]
+async fn compose_publish_after_save_refuses_without_overwrite_or_enqueue() {
+    // Finding 1: stale compose Publish cannot send old content once a draft exists.
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let v1 = serde_json::json!({
+        "title": "Version One",
+        "text_content": "plain v1",
+        "html_content": "<p>v1</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    test_app.post_save_newsletter_draft(&v1).await;
+
+    let v2 = serde_json::json!({
+        "title": "Version Two",
+        "text_content": "plain v2",
+        "html_content": "<p>v2</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    test_app.post_save_newsletter_draft(&v2).await;
+
+    // Scoped: drop before publish-by-id so its delivery email does not match expect(0).
+    {
+        let _no_email = Mock::given(any())
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount_as_scoped(&test_app.email_server)
+            .await;
+
+        // Stale tab still holds v1 and hits compose Publish.
+        let response = test_app.post_publish_newsletter(&v1).await;
+        assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+        let html = test_app.get_newsletter_edit_html(issue_id).await;
+        assert!(
+            html.contains("already exists"),
+            "expected already-exists flash, got: {html}"
+        );
+
+        let row = sqlx::query!(
+            r#"
+            SELECT title, text_content, status as "status: site::domain::NewsletterIssueStatus"
+            FROM newsletter.newsletter_issues
+            WHERE newsletter_issue_id = $1
+            "#,
+            issue_id
+        )
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+        assert_eq!(row.title, "Version Two");
+        assert_eq!(row.text_content, "plain v2");
+        assert_eq!(row.status, site::domain::NewsletterIssueStatus::Draft);
+
+        let queued = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) FROM newsletter.issue_delivery_queue
+            WHERE newsletter_issue_id = $1
+            "#,
+            issue_id
+        )
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+        assert_eq!(queued, Some(0));
+    }
+
+    // publish-by-id queues the saved DB content (v2).
+    create_confirmed_subscriber(&test_app).await;
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+    let response = test_app
+        .post_publish_saved_newsletter(
+            issue_id,
+            &serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+        )
+        .await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    test_app.dispatch_all_pending_emails().await;
+
+    let row = sqlx::query!(
+        r#"
+        SELECT title, text_content,
+               status as "status: site::domain::NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(row.title, "Version Two");
+    assert_eq!(row.text_content, "plain v2");
+    assert_eq!(row.status, site::domain::NewsletterIssueStatus::Sent);
+}
+
+#[tokio::test]
+async fn compose_publish_idempotent_replay_skips_already_exists_check() {
+    // A successful compose Publish must replay even though the row now exists.
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let key = uuid::Uuid::new_v4().to_string();
+    let body = serde_json::json!({
+        "title": "Once",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": key
+    });
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(html.contains("emails will go out shortly"));
+
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(
+        html.contains("emails will go out shortly"),
+        "replay must return first Queued flash, not already-exists: {html}"
+    );
+    assert!(!html.contains("already exists"));
+
+    // Replay must not create a second delivery row.
+    let queued = sqlx::query_scalar!(
+        r#"SELECT COUNT(*) FROM newsletter.issue_delivery_queue WHERE newsletter_issue_id = $1"#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(queued, Some(1));
+    test_app.dispatch_all_pending_emails().await;
+}
+
+#[tokio::test]
+async fn publish_saved_unknown_id_returns_404() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let response = test_app
+        .post_publish_saved_newsletter(
+            uuid::Uuid::new_v4(),
+            &serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+        )
+        .await;
+    assert_eq!(response.status().as_u16(), 404);
+}
+
+#[tokio::test]
+async fn empty_title_draft_lists_as_untitled() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let issue_id = uuid::Uuid::new_v4();
+    test_app
+        .post_save_newsletter_draft(&serde_json::json!({
+            "title": "",
+            "text_content": "body",
+            "html_content": "<p>body</p>",
+            "newsletter_issue_id": issue_id.to_string(),
+            "idempotency_key": uuid::Uuid::new_v4().to_string()
+        }))
+        .await;
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(html.contains("(untitled)"));
+    assert!(html.contains(&format!("/admin/newsletters/{issue_id}/edit")));
+    assert!(!html.contains(&format!(
+        r#"<a href="/admin/newsletters/{issue_id}/edit"></a>"#
+    )));
 }

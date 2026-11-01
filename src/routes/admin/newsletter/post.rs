@@ -4,8 +4,9 @@ use crate::idempotency::{IdempotencyKey, NextAction, save_response, try_processi
 use crate::issue_delivery_worker::mark_sent_if_drained;
 use crate::utils::e400;
 use crate::utils::{e500, see_other};
+use actix_web::HttpResponse;
 use actix_web::http::header::{HeaderName, HeaderValue};
-use actix_web::{HttpResponse, web};
+use actix_web::web;
 use actix_web_flash_messages::FlashMessage;
 use anyhow::Context;
 use sqlx::{Executor, PgPool, Postgres, Transaction};
@@ -22,8 +23,9 @@ pub struct FormData {
     html_content: String,
     idempotency_key: String,
     /// Optional issue id. Absent ⇒ a new issue id is generated. Present ⇒ the
-    /// issue is inserted under that id, or its content is updated while it is
-    /// still a `draft`; either way it is then queued for delivery.
+    /// issue is inserted under that id **only if it does not already exist**;
+    /// then it is queued. An existing id is refused (redirect to edit) — compose
+    /// Publish never overwrites a saved draft.
     #[serde(default)]
     newsletter_issue_id: Option<String>,
 }
@@ -42,12 +44,22 @@ fn already_handled_message() -> FlashMessage {
     )
 }
 
+fn already_exists_message() -> FlashMessage {
+    FlashMessage::error(
+        "This newsletter issue already exists. Open the edit page to publish \
+        the saved draft, or view its status. Compose Publish never overwrites \
+        an existing issue.",
+    )
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum QueueOutcome {
     /// Transitioned `draft` → `queued` and enqueued delivery rows.
     Queued,
     /// Issue exists but is already `queued` / `sent` / `failed` — do not enqueue again.
     AlreadyHandled { status: NewsletterIssueStatus },
+    /// Compose Publish hit an existing `newsletter_issue_id` (insert-only conflict).
+    AlreadyExists,
 }
 
 #[tracing::instrument(
@@ -73,20 +85,20 @@ pub async fn publish_newsletter(
         None | Some("") => None,
         Some(raw) => Some(Uuid::parse_str(raw).map_err(e400)?),
     };
+    // Replay must run before any insert/exists check so a saved success (or
+    // refusal) is returned even when the issue row now exists.
     let mut transaction = match try_processing(&pool, &idempotency_key, *user_id)
         .await
         .map_err(e500)?
     {
         NextAction::StartProcessing(t) => t,
         NextAction::ReturnSavedResponse(saved_response) => {
-            // Flash must follow the first accept's outcome (stored on the
-            // idempotency response), never this request's newsletter_issue_id.
             flash_for_idempotent_replay(&saved_response);
             return Ok(strip_queue_outcome_header(saved_response));
         }
     };
     let issue_id = existing_issue_id.unwrap_or_else(Uuid::new_v4);
-    save_newsletter_issue(
+    let inserted = insert_newsletter_issue(
         &mut transaction,
         issue_id,
         &title,
@@ -96,9 +108,23 @@ pub async fn publish_newsletter(
     .await
     .context("Failed to store newsletter issue details")
     .map_err(e500)?;
+    if !inserted {
+        // Id already taken (e.g. Save draft ran first, or a prior publish).
+        // Do not overwrite; send the admin to the edit page.
+        let outcome = QueueOutcome::AlreadyExists;
+        let response = attach_queue_outcome(
+            see_other(&format!("/admin/newsletters/{issue_id}/edit")),
+            &outcome,
+        );
+        let response = save_response(transaction, &idempotency_key, *user_id, response)
+            .await
+            .map_err(e500)?;
+        already_exists_message().send();
+        return Ok(strip_queue_outcome_header(response));
+    }
     let outcome = queue_issue_for_delivery(&mut transaction, issue_id)
         .await
-        .context("Failed to queue newsletter issue for delivery")
+        .context("Failed to enqueue newsletter issue for delivery")
         .map_err(e500)?;
     let response = attach_queue_outcome(see_other("/admin/newsletters"), &outcome);
     let response = save_response(transaction, &idempotency_key, *user_id, response)
@@ -107,6 +133,95 @@ pub async fn publish_newsletter(
     match outcome {
         QueueOutcome::Queued => success_message().send(),
         QueueOutcome::AlreadyHandled { .. } => already_handled_message().send(),
+        // Insert just succeeded; queue of a fresh draft cannot be AlreadyExists.
+        QueueOutcome::AlreadyExists => unreachable!("fresh insert cannot AlreadyExists"),
+    }
+    Ok(strip_queue_outcome_header(response))
+}
+
+#[derive(serde::Deserialize)]
+pub struct PublishSavedPath {
+    newsletter_issue_id: Uuid,
+}
+
+#[derive(serde::Deserialize)]
+pub struct PublishSavedFormData {
+    idempotency_key: String,
+}
+
+/// Publish a previously saved draft by id: queue the **stored** content under
+/// `FOR UPDATE`. No title/body in the request — the edit page cannot send stale
+/// form content. Non-draft ⇒ AlreadyHandled; missing id ⇒ 404 (idempotency txn
+/// rolled back so the key is not burned).
+#[tracing::instrument(
+    name = "Publish saved newsletter draft",
+    skip_all,
+    fields(user_id=%&*user_id)
+)]
+pub async fn publish_saved_newsletter(
+    path: web::Path<PublishSavedPath>,
+    form: web::Form<PublishSavedFormData>,
+    pool: web::Data<PgPool>,
+    user_id: web::ReqData<UserId>,
+) -> Result<HttpResponse, actix_web::Error> {
+    let user_id = user_id.into_inner();
+    let issue_id = path.newsletter_issue_id;
+    let idempotency_key: IdempotencyKey = form.0.idempotency_key.try_into().map_err(e400)?;
+
+    let mut transaction = match try_processing(&pool, &idempotency_key, *user_id)
+        .await
+        .map_err(e500)?
+    {
+        NextAction::StartProcessing(t) => t,
+        NextAction::ReturnSavedResponse(saved_response) => {
+            flash_for_idempotent_replay(&saved_response);
+            return Ok(strip_queue_outcome_header(saved_response));
+        }
+    };
+
+    let status = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        FOR UPDATE
+        "#,
+        issue_id
+    )
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(e500)?;
+
+    let Some(status) = status else {
+        // Missing id: roll back so the forever key is not consumed on a typo.
+        transaction
+            .rollback()
+            .await
+            .context("Failed to rollback publish-saved transaction")
+            .map_err(e500)?;
+        return Ok(HttpResponse::NotFound()
+            .content_type(actix_web::http::header::ContentType::html())
+            .body("Newsletter issue not found."));
+    };
+
+    let outcome = match status {
+        NewsletterIssueStatus::Draft => queue_issue_for_delivery(&mut transaction, issue_id)
+            .await
+            .context("Failed to enqueue newsletter issue for delivery")
+            .map_err(e500)?,
+        NewsletterIssueStatus::Queued
+        | NewsletterIssueStatus::Sent
+        | NewsletterIssueStatus::Failed => QueueOutcome::AlreadyHandled { status },
+    };
+
+    let response = attach_queue_outcome(see_other("/admin/newsletters"), &outcome);
+    let response = save_response(transaction, &idempotency_key, *user_id, response)
+        .await
+        .map_err(e500)?;
+    match outcome {
+        QueueOutcome::Queued => success_message().send(),
+        QueueOutcome::AlreadyHandled { .. } => already_handled_message().send(),
+        QueueOutcome::AlreadyExists => unreachable!("publish-saved never AlreadyExists"),
     }
     Ok(strip_queue_outcome_header(response))
 }
@@ -115,6 +230,7 @@ fn attach_queue_outcome(mut response: HttpResponse, outcome: &QueueOutcome) -> H
     let value = match outcome {
         QueueOutcome::Queued => "queued",
         QueueOutcome::AlreadyHandled { .. } => "already-handled",
+        QueueOutcome::AlreadyExists => "already-exists",
     };
     response.headers_mut().insert(
         HeaderName::from_static(QUEUE_OUTCOME_HEADER),
@@ -142,6 +258,7 @@ fn flash_for_idempotent_replay(saved_response: &HttpResponse) {
         .and_then(|v| v.to_str().ok());
     match outcome {
         Some("queued") => success_message().send(),
+        Some("already-exists") => already_exists_message().send(),
         // "already-handled", missing, or anything unexpected
         _ => already_handled_message().send(),
     }
@@ -227,8 +344,10 @@ pub async fn save_newsletter_draft(
     .map_err(e500)?;
 
     // Re-read under the same txn. Covers the race where FOR UPDATE saw no row,
-    // then a concurrent publish inserted+queued before our upsert: ON CONFLICT
+    // then a concurrent publish-by-id inserted+queued before our upsert: ON CONFLICT
     // ... WHERE status = 'draft' writes nothing, but we must not flash success.
+    // (Compose Publish is insert-only and would refuse rather than queue an
+    // existing id; publish-saved is the path that can race draft save.)
     let status_after = sqlx::query_scalar!(
         r#"
         SELECT status as "status: NewsletterIssueStatus"
@@ -262,6 +381,39 @@ pub async fn save_newsletter_draft(
 
     FlashMessage::info("Draft saved.").send();
     Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")))
+}
+
+/// Insert-only for compose Publish. Returns `true` if a new row was inserted,
+/// `false` if `newsletter_issue_id` already existed (`ON CONFLICT DO NOTHING`).
+#[tracing::instrument(skip_all)]
+async fn insert_newsletter_issue(
+    transaction: &mut Transaction<'_, Postgres>,
+    newsletter_issue_id: Uuid,
+    title: &str,
+    text_content: &str,
+    html_content: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id,
+            title,
+            text_content,
+            html_content,
+            published_at,
+            status
+        )
+        VALUES ($1, $2, $3, $4, now(), 'draft')
+        ON CONFLICT (newsletter_issue_id) DO NOTHING
+        "#,
+        newsletter_issue_id,
+        title,
+        text_content,
+        html_content
+    )
+    .execute(&mut **transaction)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 /// Insert the issue as a `draft` under `newsletter_issue_id`, or, if that id

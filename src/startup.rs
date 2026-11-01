@@ -191,6 +191,10 @@ async fn run(
                         web::get().to(edit_newsletter_form),
                     )
                     .route("/newsletters/drafts", web::post().to(save_newsletter_draft))
+                    .route(
+                        "/newsletters/{newsletter_issue_id}/publish",
+                        web::post().to(publish_saved_newsletter),
+                    )
                     .route("/newsletters", web::post().to(publish_newsletter))
                     .route("/password", web::get().to(change_password_form))
                     .route("/password", web::post().to(change_password))

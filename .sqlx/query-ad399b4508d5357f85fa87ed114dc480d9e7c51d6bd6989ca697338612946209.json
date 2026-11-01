@@ -1,10 +1,20 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT status as \"status: site::domain::NewsletterIssueStatus\"\n            FROM newsletter.newsletter_issues\n            WHERE newsletter_issue_id = $1\n            ",
+  "query": "\n            SELECT title, text_content, status as \"status: site::domain::NewsletterIssueStatus\"\n            FROM newsletter.newsletter_issues\n            WHERE newsletter_issue_id = $1\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "text_content",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
         "name": "status: site::domain::NewsletterIssueStatus",
         "type_info": {
           "Custom": {
@@ -27,8 +37,10 @@
       ]
     },
     "nullable": [
+      false,
+      false,
       false
     ]
   },
-  "hash": "1db554e1a52e496d24217d0da0f81831aa89ecf8d298864591271cd2965bb21b"
+  "hash": "ad399b4508d5357f85fa87ed114dc480d9e7c51d6bd6989ca697338612946209"
 }

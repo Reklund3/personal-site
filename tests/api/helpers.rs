@@ -211,6 +211,25 @@ impl TestApp {
             .expect("Failed to execute request.")
     }
 
+    pub async fn post_publish_saved_newsletter<Body>(
+        &self,
+        issue_id: uuid::Uuid,
+        body: &Body,
+    ) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.api_client
+            .post(&format!(
+                "{}/admin/newsletters/{}/publish",
+                &self.address, issue_id
+            ))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
     pub async fn get_resume(&self) -> reqwest::Response {
         self.api_client
             .get(&format!("{}/resume", &self.address))

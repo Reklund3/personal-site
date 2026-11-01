@@ -34,7 +34,16 @@ fn status_label(status: NewsletterIssueStatus) -> &'static str {
     }
 }
 
-/// List drafts (with Edit links) and recent non-draft issues.
+fn display_title(title: &str) -> String {
+    let trimmed = title.trim();
+    if trimmed.is_empty() {
+        "(untitled)".to_string()
+    } else {
+        escape_attr(trimmed)
+    }
+}
+
+/// List drafts (with Edit + Publish) and recent non-draft issues.
 pub async fn list_newsletters(
     flash_messages: IncomingFlashMessages,
     pool: web::Data<PgPool>,
@@ -76,11 +85,18 @@ pub async fn list_newsletters(
     } else {
         drafts_html.push_str("<ul>");
         for d in &drafts {
-            let title = escape_attr(&d.title);
+            let title = display_title(&d.title);
             let id = d.newsletter_issue_id;
+            let publish_key = Uuid::new_v4();
             writeln!(
                 drafts_html,
-                r#"<li><a href="/admin/newsletters/{id}/edit">{title}</a></li>"#
+                r#"<li>
+                    <a href="/admin/newsletters/{id}/edit">{title}</a>
+                    <form action="/admin/newsletters/{id}/publish" method="post" style="display:inline">
+                        <input hidden type="text" name="idempotency_key" value="{publish_key}">
+                        <button type="submit">Publish</button>
+                    </form>
+                </li>"#
             )
             .unwrap();
         }
@@ -93,7 +109,7 @@ pub async fn list_newsletters(
     } else {
         recent_html.push_str("<ul>");
         for r in &recent {
-            let title = escape_attr(&r.title);
+            let title = display_title(&r.title);
             let id = r.newsletter_issue_id;
             let status = status_label(r.status);
             writeln!(
@@ -144,7 +160,7 @@ pub async fn publish_newsletter_form(
             "",
             "",
             "",
-            FormMode::Editable,
+            FormMode::Compose,
             None,
         )))
 }
@@ -154,7 +170,7 @@ pub struct EditPath {
     newsletter_issue_id: Uuid,
 }
 
-/// Prefill the form from a draft, or show a read-only view for queued/sent/failed.
+/// Prefill the draft editor, or show a read-only view for queued/sent/failed.
 pub async fn edit_newsletter_form(
     path: web::Path<EditPath>,
     flash_messages: IncomingFlashMessages,
@@ -184,19 +200,20 @@ pub async fn edit_newsletter_form(
     };
 
     let mode = match row.status {
-        NewsletterIssueStatus::Draft => FormMode::Editable,
+        NewsletterIssueStatus::Draft => FormMode::EditDraft,
         other => FormMode::ReadOnly {
             status: status_label(other),
         },
     };
     let title_text = match mode {
-        FormMode::Editable => "Edit Draft",
+        FormMode::EditDraft => "Edit Draft",
         FormMode::ReadOnly { .. } => "Newsletter Issue",
+        FormMode::Compose => unreachable!("edit path never Compose"),
     };
-    // Only editable forms need a publish idempotency key.
+    // Publish-by-id needs its own idempotency key (separate form).
     let idempotency_key = match mode {
-        FormMode::Editable => Uuid::new_v4(),
-        FormMode::ReadOnly { .. } => Uuid::nil(),
+        FormMode::EditDraft => Uuid::new_v4(),
+        FormMode::ReadOnly { .. } | FormMode::Compose => Uuid::nil(),
     };
 
     Ok(HttpResponse::Ok()
@@ -215,8 +232,13 @@ pub async fn edit_newsletter_form(
 }
 
 enum FormMode {
-    Editable,
-    ReadOnly { status: &'static str },
+    /// New issue: Save draft + Publish (insert-only compose publish).
+    Compose,
+    /// Existing draft: Save draft only; Publish is a separate by-id form.
+    EditDraft,
+    ReadOnly {
+        status: &'static str,
+    },
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -239,15 +261,18 @@ fn render_issue_form(
         (FormMode::ReadOnly { status }, _) => {
             format!("<p><b>Status:</b> {status} (read-only)</p>")
         }
-        (FormMode::Editable, Some(s)) => format!("<p><b>Status:</b> {s}</p>"),
-        (FormMode::Editable, None) => String::new(),
+        (FormMode::EditDraft, Some(s)) => format!("<p><b>Status:</b> {s}</p>"),
+        (FormMode::EditDraft, None) | (FormMode::Compose, _) => String::new(),
     };
 
     // Read-only issues must not render a POST form: `readonly` inputs can still
     // submit via Enter in some browsers, which would mint a forever idempotency
-    // row for an AlreadyHandled publish. Show plain fields instead.
+    // row. Show plain fields instead.
+    //
+    // Edit drafts must not publish form content (Finding 1): only Save draft on
+    // the content form; Publish is a separate by-id form with no title/body.
     let body_inner = match mode {
-        FormMode::Editable => format!(
+        FormMode::Compose => format!(
             r#"
     <form action="/admin/newsletters" method="post">
         <label>Title:<br>
@@ -282,6 +307,45 @@ fn render_issue_form(
         <button type="submit" formaction="/admin/newsletters/drafts" formmethod="post">Save draft</button>
         <button type="submit">Publish</button>
     </form>"#
+        ),
+        FormMode::EditDraft => format!(
+            r#"
+    <form action="/admin/newsletters/drafts" method="post">
+        <label>Title:<br>
+            <input
+                type="text"
+                placeholder="Enter the issue title"
+                name="title"
+                value="{title_v}"
+            >
+        </label>
+        <br>
+        <label>Plain text content:<br>
+            <textarea
+                placeholder="Enter the content in plain text"
+                name="text_content"
+                rows="20"
+                cols="50"
+            >{text_v}</textarea>
+        </label>
+        <br>
+        <label>HTML content:<br>
+            <textarea
+                placeholder="Enter the content in HTML format"
+                name="html_content"
+                rows="20"
+                cols="50"
+            >{html_v}</textarea>
+        </label>
+        <br>
+        <input hidden type="text" name="newsletter_issue_id" value="{issue_id}">
+        <button type="submit">Save draft</button>
+    </form>
+    <form action="/admin/newsletters/{issue_id}/publish" method="post">
+        <input hidden type="text" name="idempotency_key" value="{idempotency_key}">
+        <button type="submit">Publish</button>
+    </form>
+    <p><i>Publish sends the last saved draft content (not unsaved form fields).</i></p>"#
         ),
         FormMode::ReadOnly { .. } => format!(
             r#"
