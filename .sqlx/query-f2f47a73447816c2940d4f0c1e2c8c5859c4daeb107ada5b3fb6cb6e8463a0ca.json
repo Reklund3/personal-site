@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            newsletter_issue_id,\n            title,\n            status as \"status: NewsletterIssueStatus\",\n            published_at\n        FROM newsletter.newsletter_issues\n        WHERE status <> 'draft'\n        ORDER BY published_at DESC\n        LIMIT 20\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "newsletter_issue_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "status: NewsletterIssueStatus",
+        "type_info": {
+          "Custom": {
+            "name": "newsletter.newsletter_issue_status",
+            "kind": {
+              "Enum": [
+                "draft",
+                "queued",
+                "sent",
+                "failed"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "published_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f2f47a73447816c2940d4f0c1e2c8c5859c4daeb107ada5b3fb6cb6e8463a0ca"
+}
