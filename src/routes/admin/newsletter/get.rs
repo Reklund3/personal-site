@@ -13,6 +13,7 @@ fn escape_attr(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }
 
 fn flash_html(flash_messages: &IncomingFlashMessages) -> String {
@@ -290,7 +291,8 @@ fn render_issue_form(
                 name="text_content"
                 rows="20"
                 cols="50"
-            >{text_v}</textarea>
+            >
+{text_v}</textarea>
         </label>
         <br>
         <label>HTML content:<br>
@@ -299,7 +301,8 @@ fn render_issue_form(
                 name="html_content"
                 rows="20"
                 cols="50"
-            >{html_v}</textarea>
+            >
+{html_v}</textarea>
         </label>
         <br>
         <input hidden type="text" name="idempotency_key" value="{idempotency_key}">
@@ -326,7 +329,8 @@ fn render_issue_form(
                 name="text_content"
                 rows="20"
                 cols="50"
-            >{text_v}</textarea>
+            >
+{text_v}</textarea>
         </label>
         <br>
         <label>HTML content:<br>
@@ -335,7 +339,8 @@ fn render_issue_form(
                 name="html_content"
                 rows="20"
                 cols="50"
-            >{html_v}</textarea>
+            >
+{html_v}</textarea>
         </label>
         <br>
         <input hidden type="text" name="newsletter_issue_id" value="{issue_id}">
@@ -373,4 +378,43 @@ fn render_issue_form(
 </body>
 </html>"#
     )
+}
+
+#[cfg(test)]
+mod escape_attr_tests {
+    use super::escape_attr;
+
+    #[test]
+    fn escapes_ampersand_first_and_quotes() {
+        assert_eq!(
+            escape_attr(r#""><script>alert(1)</script>"#),
+            r#"&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;"#
+        );
+        assert_eq!(escape_attr("a & b"), "a &amp; b");
+        assert_eq!(escape_attr("a &amp; b"), "a &amp;amp; b");
+    }
+
+    #[test]
+    fn escapes_apostrophe() {
+        assert_eq!(escape_attr("O'Brien"), "O&#39;Brien");
+        assert_eq!(
+            escape_attr("x & y's \"z\""),
+            "x &amp; y&#39;s &quot;z&quot;"
+        );
+    }
+
+    #[test]
+    fn flash_like_hostile_payload_is_escaped() {
+        // flash_html runs every message through escape_attr; keep that contract.
+        let hostile = r#"<img src=x onerror='alert(1)'>&""#;
+        let escaped = escape_attr(hostile);
+        assert!(!escaped.contains('<') && !escaped.contains('>'));
+        assert!(!escaped.contains('"') || escaped.contains("&quot;"));
+        assert!(escaped.contains("&amp;"));
+        assert!(escaped.contains("&#39;"));
+        assert_eq!(
+            escaped,
+            "&lt;img src=x onerror=&#39;alert(1)&#39;&gt;&amp;&quot;"
+        );
+    }
 }

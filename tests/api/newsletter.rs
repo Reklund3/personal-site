@@ -1546,7 +1546,8 @@ async fn save_draft_over_queued_issue_is_rejected_without_changes() {
 
     let row = sqlx::query!(
         r#"
-        SELECT title, text_content, status as "status: site::domain::NewsletterIssueStatus"
+        SELECT title, text_content, html_content,
+               status as "status: site::domain::NewsletterIssueStatus"
         FROM newsletter.newsletter_issues
         WHERE newsletter_issue_id = $1
         "#,
@@ -1557,6 +1558,7 @@ async fn save_draft_over_queued_issue_is_rejected_without_changes() {
     .unwrap();
     assert_eq!(row.title, "Queued title");
     assert_eq!(row.text_content, "queued text");
+    assert_eq!(row.html_content, "<p>queued</p>");
     assert_eq!(row.status, site::domain::NewsletterIssueStatus::Queued);
 }
 
@@ -1763,9 +1765,10 @@ async fn prefilled_and_listed_titles_are_html_escaped() {
     test_app.test_user.login(&test_app).await;
 
     let issue_id = uuid::Uuid::new_v4();
-    let nasty_title = r#""><script>alert(1)</script><"#;
-    let nasty_text = "</textarea><script>alert(1)</script>";
-    let nasty_html = r#"<img src=x onerror="alert(1)">"#;
+    // Include & and ' so dropping those escape_attr arms would fail.
+    let nasty_title = r#""><script>alert(1)</script> & O'Brien<"#;
+    let nasty_text = "</textarea><script>alert(1)</script> & 'x'";
+    let nasty_html = r#"<img src=x onerror="alert(1)"> & 'y'"#;
     let body = serde_json::json!({
         "title": nasty_title,
         "text_content": nasty_text,
@@ -1777,30 +1780,90 @@ async fn prefilled_and_listed_titles_are_html_escaped() {
 
     let edit = test_app.get_newsletter_edit_html(issue_id).await;
     assert!(
-        edit.contains("&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;"),
-        "title must be attribute-escaped: {edit}"
+        edit.contains("&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt; &amp; O&#39;Brien&lt;"),
+        "title must escape quotes, angles, amp, apostrophe: {edit}"
     );
     assert!(
-        edit.contains("&lt;/textarea&gt;&lt;script&gt;alert(1)&lt;/script&gt;"),
-        "textarea body must escape closers: {edit}"
+        edit.contains("&lt;/textarea&gt;&lt;script&gt;alert(1)&lt;/script&gt; &amp; &#39;x&#39;"),
+        "textarea body must escape closers/amp/apostrophe: {edit}"
     );
     assert!(
         !edit.contains("</textarea><script>"),
         "raw textarea breakout must not appear"
     );
     assert!(
-        edit.contains("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;"),
+        edit.contains("&lt;img src=x onerror=&quot;alert(1)&quot;&gt; &amp; &#39;y&#39;"),
         "html_content must be escaped in the form: {edit}"
     );
 
     let list = test_app.get_publish_newsletter_html().await;
+    let drafts_at = list.find("<h2>Drafts</h2>").expect("Drafts");
+    let recent_at = list.find("<h2>Recent issues</h2>").expect("Recent");
+    let drafts_section = &list[drafts_at..recent_at];
     assert!(
-        list.contains("&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;&lt;"),
-        "list titles must be escaped: {list}"
+        drafts_section
+            .contains("&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt; &amp; O&#39;Brien&lt;"),
+        "draft list titles must be escaped: {drafts_section}"
     );
     assert!(
         !list.contains("<script>alert(1)</script>"),
         "raw script must not appear in list HTML"
+    );
+
+    // Recent-issues sink: a non-draft title with the same hostile payload.
+    let sent_id = uuid::Uuid::new_v4();
+    sqlx::query!(
+        r#"
+        INSERT INTO newsletter.newsletter_issues (
+            newsletter_issue_id, title, text_content, html_content, published_at, status
+        ) VALUES ($1, $2, 't', '<p>t</p>', now(), 'sent')
+        "#,
+        sent_id,
+        nasty_title
+    )
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+    let list = test_app.get_publish_newsletter_html().await;
+    let recent_at = list.find("<h2>Recent issues</h2>").expect("Recent");
+    let recent_section = &list[recent_at..];
+    assert!(
+        recent_section
+            .contains("&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt; &amp; O&#39;Brien&lt;"),
+        "recent-list titles must be escaped: {recent_section}"
+    );
+    assert!(
+        !recent_section.contains("<script>alert(1)</script>"),
+        "raw script must not appear in recent list"
+    );
+
+    // Hostile flash sink: trigger AlreadyExists; flash is server-authored and
+    // routed through escape_attr. Also force a user-influenced redirect page
+    // that embeds the flash HTML and assert no raw angle brackets from a
+    // crafted title leak into the flash paragraph via other sinks — the flash
+    // text itself is fixed, so assert the <p><i>…</i></p> wrapper is escaped
+    // content only (unit tests cover escape_attr for flash-like payloads).
+    let stale = serde_json::json!({
+        "title": nasty_title,
+        "text_content": nasty_text,
+        "html_content": nasty_html,
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    let response = test_app.post_publish_newsletter(&stale).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+    let edit = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(
+        edit.contains("<p><i>") && edit.contains("already exists"),
+        "expected already-exists flash: {edit}"
+    );
+    // Flash paragraph must not contain a raw <script> even if titles are nasty.
+    let flash_start = edit.find("<p><i>").expect("flash");
+    let flash_end = edit[flash_start..].find("</i></p>").expect("flash end") + flash_start;
+    let flash = &edit[flash_start..=flash_end + "</i></p>".len() - 1];
+    assert!(
+        !flash.contains("<script>") && !flash.contains("</script>"),
+        "flash sink must not embed raw script tags: {flash}"
     );
 }
 
@@ -1855,18 +1918,33 @@ async fn malformed_edit_path_uuid_is_not_a_500() {
         .send()
         .await
         .expect("request");
-    let status = response.status().as_u16();
-    assert!(
-        status == 400 || status == 404,
-        "malformed path UUID should be 400 or 404, got {status}"
-    );
+    // Resource pattern requires a UUID segment; a non-UUID path does not match
+    // and Actix returns 404 (distinct from a matched handler error).
+    assert_eq!(response.status().as_u16(), 404);
+}
+
+#[tokio::test]
+async fn malformed_newsletter_issue_id_in_draft_post_is_400() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let body = serde_json::json!({
+        "title": "x",
+        "text_content": "y",
+        "html_content": "z",
+        "newsletter_issue_id": "not-a-uuid",
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    let response = test_app.post_save_newsletter_draft(&body).await;
+    assert_eq!(response.status().as_u16(), 400);
 }
 
 #[tokio::test]
 async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_draft() {
+    // Truly concurrent: separate sessions (cookie jars) + Barrier so both
+    // requests leave the gate together. Loop to exercise interleavings.
     let test_app = spawn_app().await;
     create_confirmed_subscriber(&test_app).await;
-    test_app.test_user.login(&test_app).await;
 
     Mock::given(path("/email"))
         .and(method("POST"))
@@ -1874,10 +1952,7 @@ async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_
         .mount(&test_app.email_server)
         .await;
 
-    // Seed a draft first so publish-saved has a row to lock; then race a content
-    // save against publish-by-id. Whichever wins, queued content must equal the
-    // committed row (no mixed/stale compose body), and a late save is rejected.
-    for _ in 0..8 {
+    for _ in 0..12 {
         let issue_id = uuid::Uuid::new_v4();
         let seed = serde_json::json!({
             "title": "Seed title",
@@ -1886,7 +1961,13 @@ async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_
             "newsletter_issue_id": issue_id.to_string(),
             "idempotency_key": uuid::Uuid::new_v4().to_string()
         });
+        test_app.test_user.login(&test_app).await;
         test_app.post_save_newsletter_draft(&seed).await;
+
+        let save_client = TestApp::fresh_api_client();
+        let publish_client = TestApp::fresh_api_client();
+        test_app.login_client(&save_client).await;
+        test_app.login_client(&publish_client).await;
 
         let draft_body = serde_json::json!({
             "title": "Draft race",
@@ -1899,10 +1980,41 @@ async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_
             "idempotency_key": uuid::Uuid::new_v4().to_string()
         });
 
-        let draft_fut = test_app.post_save_newsletter_draft(&draft_body);
-        let publish_fut = test_app.post_publish_saved_newsletter(issue_id, &publish_body);
-        let (draft_resp, publish_resp) = tokio::join!(draft_fut, publish_fut);
+        let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
+        let address = test_app.address.clone();
+        let save_barrier = barrier.clone();
+        let save_task = {
+            let client = save_client.clone();
+            let address = address.clone();
+            let body = draft_body.clone();
+            tokio::spawn(async move {
+                save_barrier.wait().await;
+                client
+                    .post(format!("{address}/admin/newsletters/drafts"))
+                    .form(&body)
+                    .send()
+                    .await
+                    .expect("save")
+            })
+        };
+        let pub_task = {
+            let client = publish_client.clone();
+            let address = address.clone();
+            let body = publish_body.clone();
+            tokio::spawn(async move {
+                barrier.wait().await;
+                client
+                    .post(format!("{address}/admin/newsletters/{issue_id}/publish"))
+                    .form(&body)
+                    .send()
+                    .await
+                    .expect("publish")
+            })
+        };
 
+        let (save_res, pub_res) = tokio::join!(save_task, pub_task);
+        let draft_resp = save_res.unwrap();
+        let publish_resp = pub_res.unwrap();
         assert_eq!(draft_resp.status().as_u16(), 303);
         assert_eq!(publish_resp.status().as_u16(), 303);
 
@@ -1919,8 +2031,6 @@ async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_
         .await
         .unwrap();
 
-        // Content must be one of the committed writers — never a mix, and never
-        // inventing compose-style publish body fields (there are none).
         let allowed = [
             ("Seed title", "seed plain", "<p>seed</p>"),
             ("Draft race", "draft plain", "<p>draft</p>"),
@@ -1937,32 +2047,87 @@ async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_
             row.html_content
         );
 
-        let html = test_app.get_newsletter_edit_html(issue_id).await;
+        let queued = sqlx::query_scalar!(
+            r#"
+            SELECT COUNT(*) FROM newsletter.issue_delivery_queue
+            WHERE newsletter_issue_id = $1
+            "#,
+            issue_id
+        )
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+
+        match row.status {
+            site::domain::NewsletterIssueStatus::Draft => {
+                assert_eq!(queued, Some(0), "draft must not enqueue");
+            }
+            site::domain::NewsletterIssueStatus::Queued
+            | site::domain::NewsletterIssueStatus::Sent => {
+                // One confirmed subscriber ⇒ exactly one delivery row.
+                assert_eq!(queued, Some(1), "exactly one delivery enqueue");
+            }
+            site::domain::NewsletterIssueStatus::Failed => {
+                panic!("issue unexpectedly failed");
+            }
+        }
+
+        // Save session's own flash cookie (not shared with publish).
+        let save_edit = save_client
+            .get(format!(
+                "{}/admin/newsletters/{issue_id}/edit",
+                test_app.address
+            ))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(save_edit.status().as_u16(), 200);
+        let save_html = save_edit.text().await.unwrap();
         if row.status != site::domain::NewsletterIssueStatus::Draft {
-            assert!(
-                !html.contains("Draft saved."),
-                "false Draft saved flash while status={:?}: {html}",
-                row.status
-            );
-            // Late save after queue must be rejected.
+            // If publish won first, content stays seed and save must NOT claim
+            // "Draft saved." (that would be the false flash on a non-draft).
+            // If save won first, "Draft saved." is legitimate even though publish
+            // has since queued the issue.
+            if row.title == "Seed title" {
+                assert!(
+                    !save_html.contains("Draft saved."),
+                    "false Draft saved flash when publish won first: {save_html}"
+                );
+                assert!(
+                    save_html.contains("no longer a draft")
+                        || save_html.contains("already been handled")
+                        || !save_html.contains("Draft saved."),
+                    "expected rejection flash when save lost the race: {save_html}"
+                );
+            }
+
             let late = test_app
-                .post_save_newsletter_draft(&serde_json::json!({
-                    "title": "Too late",
-                    "text_content": "nope",
-                    "html_content": "<p>nope</p>",
-                    "newsletter_issue_id": issue_id.to_string(),
-                    "idempotency_key": uuid::Uuid::new_v4().to_string()
-                }))
+                .post_save_newsletter_draft_with_client(
+                    &save_client,
+                    &serde_json::json!({
+                        "title": "Too late",
+                        "text_content": "nope",
+                        "html_content": "<p>nope</p>",
+                        "newsletter_issue_id": issue_id.to_string(),
+                        "idempotency_key": uuid::Uuid::new_v4().to_string()
+                    }),
+                )
                 .await;
             assert_eq!(late.status().as_u16(), 303);
-            let after = sqlx::query_scalar!(
-                r#"SELECT title FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1"#,
+            let after = sqlx::query!(
+                r#"
+                SELECT title, text_content, html_content
+                FROM newsletter.newsletter_issues
+                WHERE newsletter_issue_id = $1
+                "#,
                 issue_id
             )
             .fetch_one(&test_app.pg_pool)
             .await
             .unwrap();
-            assert_ne!(after, "Too late");
+            assert_eq!(after.title, row.title);
+            assert_eq!(after.text_content, row.text_content);
+            assert_eq!(after.html_content, row.html_content);
         }
     }
 }
@@ -2131,6 +2296,52 @@ async fn publish_saved_unknown_id_returns_404() {
         )
         .await;
     assert_eq!(response.status().as_u16(), 404);
+}
+
+#[tokio::test]
+async fn textarea_round_trip_preserves_leading_newline() {
+    // HTML parsers drop one LF immediately after <textarea>; emit an extra
+    // newline after the opening tag so stored leading newlines survive.
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let text_content = "\nleading plain";
+    let html_content = "\n<p>leading html</p>";
+    let body = serde_json::json!({
+        "title": "Leading newline",
+        "text_content": text_content,
+        "html_content": html_content,
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    let response = test_app.post_save_newsletter_draft(&body).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+
+    let row = sqlx::query!(
+        r#"
+        SELECT text_content, html_content
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(row.text_content, text_content);
+    assert_eq!(row.html_content, html_content);
+
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    // After the opening tag: synthetic \n (dropped by parsers) + content's \n.
+    assert!(
+        html.contains(">\n\nleading plain</textarea>"),
+        "server HTML must contain >\\n + content with leading newline: {html}"
+    );
+    assert!(
+        html.contains(">\n\n&lt;p&gt;leading html&lt;/p&gt;</textarea>"),
+        "html_content leading newline must survive in textarea: {html}"
+    );
 }
 
 #[tokio::test]

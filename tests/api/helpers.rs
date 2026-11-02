@@ -192,11 +192,71 @@ impl TestApp {
     }
 
     pub async fn get_newsletter_edit_html(&self, issue_id: uuid::Uuid) -> String {
-        self.get_newsletter_edit(issue_id)
-            .await
-            .text()
-            .await
+        let response = self.get_newsletter_edit(issue_id).await;
+        assert_eq!(
+            response.status().as_u16(),
+            200,
+            "edit page should be 200 OK"
+        );
+        response.text().await.unwrap()
+    }
+
+    /// Fresh reqwest client with its own cookie jar (separate session).
+    pub fn fresh_api_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .cookie_store(true)
+            .build()
             .unwrap()
+    }
+
+    pub async fn login_client(&self, client: &reqwest::Client) {
+        client
+            .post(&format!("{}/login", &self.address))
+            .form(&serde_json::json!({
+                "username": &self.test_user.username,
+                "password": &self.test_user.password
+            }))
+            .send()
+            .await
+            .expect("Failed to login with fresh client.");
+    }
+
+    pub async fn post_save_newsletter_draft_with_client<Body>(
+        &self,
+        client: &reqwest::Client,
+        body: &Body,
+    ) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        client
+            .post(&format!("{}/admin/newsletters/drafts", &self.address))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute draft save with client.")
+    }
+
+    #[allow(dead_code)]
+    pub async fn post_publish_saved_newsletter_with_client<Body>(
+        &self,
+        client: &reqwest::Client,
+        issue_id: uuid::Uuid,
+        body: &Body,
+    ) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        client
+            .post(&format!(
+                "{}/admin/newsletters/{}/publish",
+                &self.address, issue_id
+            ))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute publish-saved with client.")
     }
 
     pub async fn post_save_newsletter_draft<Body>(&self, body: &Body) -> reqwest::Response
