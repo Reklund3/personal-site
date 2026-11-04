@@ -1959,199 +1959,281 @@ async fn malformed_newsletter_issue_id_in_draft_post_is_400() {
     assert_eq!(response.status().as_u16(), 400);
 }
 
-#[tokio::test]
-async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_draft() {
-    // Truly concurrent: separate sessions (cookie jars) + Barrier so both
-    // requests leave the gate together. Loop to exercise interleavings.
-    let test_app = spawn_app().await;
-    create_confirmed_subscriber(&test_app).await;
+/// Wait (polling, 10s cap) until `n` backends in this test's database are blocked
+/// on a heavyweight lock. Each test has its own database, so the count is scoped.
+async fn wait_for_lock_waiters(test_app: &TestApp, n: i64) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let (waiting,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM pg_stat_activity \
+             WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        )
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+        if waiting >= n {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timed out waiting for {n} lock waiter(s); saw {waiting}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
 
+async fn issue_status_and_queue(
+    test_app: &TestApp,
+    issue_id: uuid::Uuid,
+) -> (String, (String, String, String), i64) {
+    let (status,): (String,) = sqlx::query_as(
+        "SELECT status::text FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_id)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    let (queued,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM newsletter.issue_delivery_queue WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_id)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    (status, stored_content(test_app, issue_id).await, queued)
+}
+
+async fn logged_in_client(test_app: &TestApp) -> reqwest::Client {
+    let client = TestApp::fresh_api_client();
+    test_app.login_client(&client).await;
+    client
+}
+
+async fn edit_html_for(test_app: &TestApp, client: &reqwest::Client, id: uuid::Uuid) -> String {
+    client
+        .get(format!("{}/admin/newsletters/{id}/edit", test_app.address))
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap()
+}
+
+/// Seed a draft; return the hash an edit tab would carry.
+async fn seed_draft_for_race(test_app: &TestApp, issue_id: uuid::Uuid) -> String {
+    test_app.test_user.login(test_app).await;
+    test_app
+        .post_save_newsletter_draft(&serde_json::json!({
+            "title": "Seed title", "text_content": "seed plain", "html_content": "<p>seed</p>",
+            "newsletter_issue_id": issue_id.to_string(),
+        }))
+        .await;
+    extract_loaded_hash(&test_app.get_newsletter_edit_html(issue_id).await).unwrap()
+}
+
+fn spawn_post(
+    client: reqwest::Client,
+    url: String,
+    body: serde_json::Value,
+) -> tokio::task::JoinHandle<reqwest::Response> {
+    tokio::spawn(async move { client.post(url).form(&body).send().await.expect("post") })
+}
+
+async fn lock_issue_row(
+    test_app: &TestApp,
+    issue_id: uuid::Uuid,
+) -> sqlx::Transaction<'static, sqlx::Postgres> {
+    let mut gate = test_app.pg_pool.begin().await.unwrap();
+    sqlx::query(
+        "SELECT 1 FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1 FOR UPDATE",
+    )
+    .bind(issue_id)
+    .execute(&mut *gate)
+    .await
+    .unwrap();
+    gate
+}
+
+async fn mount_one_email(test_app: &TestApp) {
     Mock::given(path("/email"))
         .and(method("POST"))
         .respond_with(ResponseTemplate::new(200))
+        .expect(1)
         .mount(&test_app.email_server)
         .await;
+}
 
-    for _ in 0..12 {
-        let issue_id = uuid::Uuid::new_v4();
-        let seed = serde_json::json!({
-            "title": "Seed title",
-            "text_content": "seed plain",
-            "html_content": "<p>seed</p>",
-            "newsletter_issue_id": issue_id.to_string(),
-            "idempotency_key": uuid::Uuid::new_v4().to_string()
-        });
-        test_app.test_user.login(&test_app).await;
-        test_app.post_save_newsletter_draft(&seed).await;
+const NOT_A_DRAFT_FLASH: &str =
+    "This newsletter issue is no longer a draft and cannot be overwritten.";
 
-        let save_client = TestApp::fresh_api_client();
-        let publish_client = TestApp::fresh_api_client();
-        test_app.login_client(&save_client).await;
-        test_app.login_client(&publish_client).await;
+// R2a. Interleavings are forced, not hoped for: the test holds the issue row's
+// FOR UPDATE lock in its own transaction, fires request A and waits (via
+// pg_stat_activity, no fixed sleeps) until A blocks on it, then fires B and
+// waits until B queues behind A, then releases. Postgres grants a contended row
+// lock to waiters in arrival order, so A runs to commit before B.
 
-        // Save tab loaded the seed: carry its content hash like a browser would.
-        let loaded_hash =
-            extract_loaded_hash(&test_app.get_newsletter_edit_html(issue_id).await).unwrap();
-        let draft_body = serde_json::json!({
-            "title": "Draft race",
-            "text_content": "draft plain",
-            "html_content": "<p>draft</p>",
+#[tokio::test]
+async fn race_save_then_publish_by_id_queues_saved_content() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    mount_one_email(&test_app).await;
+    let issue_id = uuid::Uuid::new_v4();
+    let hash = seed_draft_for_race(&test_app, issue_id).await;
+    let save_client = logged_in_client(&test_app).await;
+    let publish_client = logged_in_client(&test_app).await;
+
+    let gate = lock_issue_row(&test_app, issue_id).await;
+    let save = spawn_post(
+        save_client.clone(),
+        format!("{}/admin/newsletters/drafts", test_app.address),
+        serde_json::json!({
+            "title": "Saved title", "text_content": "saved plain", "html_content": "<p>saved</p>",
+            "newsletter_issue_id": issue_id.to_string(), "loaded_content_hash": hash,
+        }),
+    );
+    wait_for_lock_waiters(&test_app, 1).await;
+    let publish = spawn_post(
+        publish_client,
+        format!("{}/admin/newsletters/{issue_id}/publish", test_app.address),
+        serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+    );
+    wait_for_lock_waiters(&test_app, 2).await;
+    gate.rollback().await.unwrap();
+
+    assert_eq!(save.await.unwrap().status().as_u16(), 303);
+    assert_eq!(publish.await.unwrap().status().as_u16(), 303);
+    let (status, content, queued) = issue_status_and_queue(&test_app, issue_id).await;
+    assert!(status == "queued" || status == "sent", "status {status}");
+    assert_eq!(
+        content,
+        (
+            "Saved title".into(),
+            "saved plain".into(),
+            "<p>saved</p>".into()
+        )
+    );
+    assert_eq!(queued, 1, "exactly one delivery row");
+    let html = edit_html_for(&test_app, &save_client, issue_id).await;
+    assert!(html.contains("Draft saved."), "save ran first: {html}");
+    test_app.dispatch_all_pending_emails().await;
+}
+
+#[tokio::test]
+async fn race_publish_by_id_then_save_refuses_save() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    mount_one_email(&test_app).await;
+    let issue_id = uuid::Uuid::new_v4();
+    let hash = seed_draft_for_race(&test_app, issue_id).await;
+    let save_client = logged_in_client(&test_app).await;
+    let publish_client = logged_in_client(&test_app).await;
+
+    let gate = lock_issue_row(&test_app, issue_id).await;
+    let publish = spawn_post(
+        publish_client,
+        format!("{}/admin/newsletters/{issue_id}/publish", test_app.address),
+        serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+    );
+    wait_for_lock_waiters(&test_app, 1).await;
+    let save = spawn_post(
+        save_client.clone(),
+        format!("{}/admin/newsletters/drafts", test_app.address),
+        serde_json::json!({
+            "title": "Late title", "text_content": "late plain", "html_content": "<p>late</p>",
+            "newsletter_issue_id": issue_id.to_string(), "loaded_content_hash": hash,
+        }),
+    );
+    wait_for_lock_waiters(&test_app, 2).await;
+    gate.rollback().await.unwrap();
+
+    assert_eq!(publish.await.unwrap().status().as_u16(), 303);
+    assert_eq!(save.await.unwrap().status().as_u16(), 303);
+    let (status, content, queued) = issue_status_and_queue(&test_app, issue_id).await;
+    assert!(status == "queued" || status == "sent", "status {status}");
+    assert_eq!(
+        content,
+        (
+            "Seed title".into(),
+            "seed plain".into(),
+            "<p>seed</p>".into()
+        )
+    );
+    assert_eq!(queued, 1, "exactly one delivery row");
+    let html = edit_html_for(&test_app, &save_client, issue_id).await;
+    assert!(
+        html.contains(NOT_A_DRAFT_FLASH),
+        "save must be refused: {html}"
+    );
+    assert!(!html.contains("Draft saved."));
+    test_app.dispatch_all_pending_emails().await;
+}
+
+// R2b. No-row race: a compose-page first save (empty hash, no row yet) loses to
+// a compose Publish of the same id. To pin the order the test takes ACCESS
+// EXCLUSIVE on `subscriptions`, which compose Publish first reads in
+// `queue_issue_for_delivery` only *after* inserting the issue row. So:
+//   1. Publish inserts the row (uncommitted) and blocks on `subscriptions`.
+//   2. Save's FOR UPDATE sees no row (uncommitted rows are invisible), then its
+//      insert-only INSERT ... ON CONFLICT DO NOTHING blocks on Publish's key.
+//   3. Release: Publish queues and commits; Save's insert does nothing, the
+//      row is now `queued`, and only the post-write status re-check refuses it.
+#[tokio::test]
+async fn race_compose_publish_inserts_before_first_save_refuses_save() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    mount_one_email(&test_app).await;
+    let issue_id = uuid::Uuid::new_v4();
+    let save_client = logged_in_client(&test_app).await;
+    let publish_client = logged_in_client(&test_app).await;
+
+    let mut gate = test_app.pg_pool.begin().await.unwrap();
+    sqlx::query("LOCK TABLE newsletter.subscriptions IN ACCESS EXCLUSIVE MODE")
+        .execute(&mut *gate)
+        .await
+        .unwrap();
+
+    let publish = spawn_post(
+        publish_client,
+        format!("{}/admin/newsletters", test_app.address),
+        serde_json::json!({
+            "title": "Published title", "text_content": "pub plain", "html_content": "<p>pub</p>",
             "newsletter_issue_id": issue_id.to_string(),
             "idempotency_key": uuid::Uuid::new_v4().to_string(),
-            "loaded_content_hash": loaded_hash
-        });
-        let publish_body = serde_json::json!({
-            "idempotency_key": uuid::Uuid::new_v4().to_string()
-        });
+        }),
+    );
+    wait_for_lock_waiters(&test_app, 1).await;
+    let save = spawn_post(
+        save_client.clone(),
+        format!("{}/admin/newsletters/drafts", test_app.address),
+        serde_json::json!({
+            "title": "Compose save", "text_content": "save plain", "html_content": "<p>save</p>",
+            "newsletter_issue_id": issue_id.to_string(), "loaded_content_hash": "",
+        }),
+    );
+    wait_for_lock_waiters(&test_app, 2).await;
+    gate.rollback().await.unwrap();
 
-        let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
-        let address = test_app.address.clone();
-        let save_barrier = barrier.clone();
-        let save_task = {
-            let client = save_client.clone();
-            let address = address.clone();
-            let body = draft_body.clone();
-            tokio::spawn(async move {
-                save_barrier.wait().await;
-                client
-                    .post(format!("{address}/admin/newsletters/drafts"))
-                    .form(&body)
-                    .send()
-                    .await
-                    .expect("save")
-            })
-        };
-        let pub_task = {
-            let client = publish_client.clone();
-            let address = address.clone();
-            let body = publish_body.clone();
-            tokio::spawn(async move {
-                barrier.wait().await;
-                client
-                    .post(format!("{address}/admin/newsletters/{issue_id}/publish"))
-                    .form(&body)
-                    .send()
-                    .await
-                    .expect("publish")
-            })
-        };
-
-        let (save_res, pub_res) = tokio::join!(save_task, pub_task);
-        let draft_resp = save_res.unwrap();
-        let publish_resp = pub_res.unwrap();
-        assert_eq!(draft_resp.status().as_u16(), 303);
-        assert_eq!(publish_resp.status().as_u16(), 303);
-
-        let row = sqlx::query!(
-            r#"
-            SELECT title, text_content, html_content,
-                   status as "status: site::domain::NewsletterIssueStatus"
-            FROM newsletter.newsletter_issues
-            WHERE newsletter_issue_id = $1
-            "#,
-            issue_id
+    assert_eq!(publish.await.unwrap().status().as_u16(), 303);
+    assert_eq!(save.await.unwrap().status().as_u16(), 303);
+    let (status, content, queued) = issue_status_and_queue(&test_app, issue_id).await;
+    assert!(status == "queued" || status == "sent", "status {status}");
+    assert_eq!(
+        content,
+        (
+            "Published title".into(),
+            "pub plain".into(),
+            "<p>pub</p>".into()
         )
-        .fetch_one(&test_app.pg_pool)
-        .await
-        .unwrap();
-
-        let allowed = [
-            ("Seed title", "seed plain", "<p>seed</p>"),
-            ("Draft race", "draft plain", "<p>draft</p>"),
-        ];
-        assert!(
-            allowed.contains(&(
-                row.title.as_str(),
-                row.text_content.as_str(),
-                row.html_content.as_str()
-            )),
-            "unexpected mixed/unknown content: title={:?} text={:?} html={:?}",
-            row.title,
-            row.text_content,
-            row.html_content
-        );
-
-        let queued = sqlx::query_scalar!(
-            r#"
-            SELECT COUNT(*) FROM newsletter.issue_delivery_queue
-            WHERE newsletter_issue_id = $1
-            "#,
-            issue_id
-        )
-        .fetch_one(&test_app.pg_pool)
-        .await
-        .unwrap();
-
-        match row.status {
-            site::domain::NewsletterIssueStatus::Draft => {
-                panic!("publish-by-id returned 303 but the seeded draft is still a draft");
-            }
-            site::domain::NewsletterIssueStatus::Queued
-            | site::domain::NewsletterIssueStatus::Sent => {
-                // One confirmed subscriber ⇒ exactly one delivery row.
-                assert_eq!(queued, Some(1), "exactly one delivery enqueue");
-            }
-            site::domain::NewsletterIssueStatus::Failed => {
-                panic!("issue unexpectedly failed");
-            }
-        }
-
-        // Save session's own flash cookie (not shared with publish).
-        let save_edit = save_client
-            .get(format!(
-                "{}/admin/newsletters/{issue_id}/edit",
-                test_app.address
-            ))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(save_edit.status().as_u16(), 200);
-        let save_html = save_edit.text().await.unwrap();
-        if row.status != site::domain::NewsletterIssueStatus::Draft {
-            // If publish won first, content stays seed and save must NOT claim
-            // "Draft saved." (that would be the false flash on a non-draft).
-            // If save won first, "Draft saved." is legitimate even though publish
-            // has since queued the issue.
-            if row.title == "Seed title" {
-                assert!(
-                    !save_html.contains("Draft saved."),
-                    "false Draft saved flash when publish won first: {save_html}"
-                );
-                assert!(
-                    save_html.contains("no longer a draft"),
-                    "expected rejection flash when save lost the race: {save_html}"
-                );
-            }
-
-            let late = test_app
-                .post_save_newsletter_draft_with_client(
-                    &save_client,
-                    &serde_json::json!({
-                        "title": "Too late",
-                        "text_content": "nope",
-                        "html_content": "<p>nope</p>",
-                        "newsletter_issue_id": issue_id.to_string(),
-                        "idempotency_key": uuid::Uuid::new_v4().to_string()
-                    }),
-                )
-                .await;
-            assert_eq!(late.status().as_u16(), 303);
-            let after = sqlx::query!(
-                r#"
-                SELECT title, text_content, html_content
-                FROM newsletter.newsletter_issues
-                WHERE newsletter_issue_id = $1
-                "#,
-                issue_id
-            )
-            .fetch_one(&test_app.pg_pool)
-            .await
-            .unwrap();
-            assert_eq!(after.title, row.title);
-            assert_eq!(after.text_content, row.text_content);
-            assert_eq!(after.html_content, row.html_content);
-        }
-    }
+    );
+    assert_eq!(queued, 1, "exactly one delivery row");
+    let html = edit_html_for(&test_app, &save_client, issue_id).await;
+    assert!(
+        html.contains(NOT_A_DRAFT_FLASH),
+        "re-check must refuse the lost-race save: {html}"
+    );
+    assert!(!html.contains("Draft saved."));
+    test_app.dispatch_all_pending_emails().await;
 }
 
 #[tokio::test]
