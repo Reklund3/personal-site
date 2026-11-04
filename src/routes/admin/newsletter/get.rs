@@ -18,11 +18,15 @@ fn escape_attr(s: &str) -> String {
 }
 
 fn flash_html(flash_messages: &IncomingFlashMessages) -> String {
+    render_flash(flash_messages.iter().map(|m| m.content()))
+}
+
+/// Flashes are server-authored today; escape anyway so a future
+/// user-influenced message cannot become HTML.
+fn render_flash<'a>(messages: impl IntoIterator<Item = &'a str>) -> String {
     let mut msg_html = String::new();
-    for m in flash_messages.iter() {
-        // Flashes are server-authored today; escape anyway so a future
-        // user-influenced message cannot become HTML.
-        writeln!(msg_html, "<p><i>{}</i></p>", escape_attr(m.content())).unwrap();
+    for m in messages {
+        writeln!(msg_html, "<p><i>{}</i></p>", escape_attr(m)).unwrap();
     }
     msg_html
 }
@@ -388,7 +392,7 @@ fn render_issue_form(
 
 #[cfg(test)]
 mod escape_attr_tests {
-    use super::escape_attr;
+    use super::{escape_attr, render_flash};
 
     #[test]
     fn escapes_ampersand_first_and_quotes() {
@@ -407,6 +411,20 @@ mod escape_attr_tests {
             escape_attr("x & y's \"z\""),
             "x &amp; y&#39;s &quot;z&quot;"
         );
+    }
+
+    #[test]
+    fn render_flash_escapes_hostile_payload_in_flash_paragraph() {
+        let html = render_flash(["<script>alert('x')</script> & co"]);
+        assert_eq!(
+            html,
+            "<p><i>&lt;script&gt;alert(&#39;x&#39;)&lt;/script&gt; &amp; co</i></p>\n"
+        );
+        let inner = html
+            .strip_prefix("<p><i>")
+            .and_then(|r| r.strip_suffix("</i></p>\n"))
+            .expect("single flash paragraph");
+        assert!(!inner.contains('<') && !inner.contains('\''));
     }
 
     #[test]

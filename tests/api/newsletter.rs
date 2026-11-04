@@ -1649,9 +1649,16 @@ async fn edit_form_wires_path_id_and_has_no_content_publish() {
         )),
         "edit page needs publish-by-id form: {html}"
     );
-    assert!(
-        html.contains(r#"name="idempotency_key""#),
-        "publish-by-id form needs an idempotency key"
+    let key = extract_hidden_value(&html, "idempotency_key")
+        .expect("publish-by-id form needs an idempotency key");
+    let key = uuid::Uuid::parse_str(&key).expect("publish key must be a UUID");
+    assert!(!key.is_nil(), "publish key must not be the nil UUID");
+    let html_again = test_app.get_newsletter_edit_html(issue_id).await;
+    let key_again = extract_hidden_value(&html_again, "idempotency_key").unwrap();
+    assert_ne!(
+        key.to_string(),
+        key_again,
+        "each edit page load must mint a fresh publish key"
     );
     // Content form posts only to drafts — never compose Publish with body fields.
     assert!(html.contains(r#"action="/admin/newsletters/drafts""#));
@@ -1857,7 +1864,7 @@ async fn prefilled_and_listed_titles_are_html_escaped() {
     assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
     let edit = test_app.get_newsletter_edit_html(issue_id).await;
     assert!(
-        edit.contains("<p><i>") && edit.contains("already exists"),
+        edit.contains("already exists"),
         "expected already-exists flash: {edit}"
     );
     // Flash paragraph must not contain a raw <script> even if titles are nasty.
@@ -1921,9 +1928,19 @@ async fn malformed_edit_path_uuid_is_not_a_500() {
         .send()
         .await
         .expect("request");
-    // Resource pattern requires a UUID segment; a non-UUID path does not match
-    // and Actix returns 404 (distinct from a matched handler error).
+    // The route pattern matches any segment; the `Path<Uuid>` extractor rejects
+    // the non-UUID one, and Actix's default path error is a 404 (not a 500).
     assert_eq!(response.status().as_u16(), 404);
+    // Prove the route is registered: a valid stored id on the same path is 200.
+    let issue_id = uuid::Uuid::new_v4();
+    test_app
+        .post_save_newsletter_draft(&serde_json::json!({
+            "title": "x", "text_content": "y", "html_content": "z",
+            "newsletter_issue_id": issue_id.to_string(),
+        }))
+        .await;
+    let response = test_app.get_newsletter_edit(issue_id).await;
+    assert_eq!(response.status().as_u16(), 200);
 }
 
 #[tokio::test]
@@ -2067,7 +2084,7 @@ async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_
 
         match row.status {
             site::domain::NewsletterIssueStatus::Draft => {
-                assert_eq!(queued, Some(0), "draft must not enqueue");
+                panic!("publish-by-id returned 303 but the seeded draft is still a draft");
             }
             site::domain::NewsletterIssueStatus::Queued
             | site::domain::NewsletterIssueStatus::Sent => {
@@ -2101,9 +2118,7 @@ async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_
                     "false Draft saved flash when publish won first: {save_html}"
                 );
                 assert!(
-                    save_html.contains("no longer a draft")
-                        || save_html.contains("already been handled")
-                        || !save_html.contains("Draft saved."),
+                    save_html.contains("no longer a draft"),
                     "expected rejection flash when save lost the race: {save_html}"
                 );
             }
@@ -2543,4 +2558,51 @@ async fn missing_malformed_or_tampered_hash_is_refused() {
     .await
     .unwrap();
     assert_eq!(n, 0);
+}
+
+#[tokio::test]
+async fn malformed_newsletter_issue_id_in_compose_publish_is_400_and_writes_nothing() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let response = test_app
+        .post_publish_newsletter(&serde_json::json!({
+            "title": "x", "text_content": "y", "html_content": "z",
+            "newsletter_issue_id": "not-a-uuid",
+            "idempotency_key": uuid::Uuid::new_v4().to_string()
+        }))
+        .await;
+    assert_eq!(response.status().as_u16(), 400);
+    let (issues,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM newsletter.newsletter_issues")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert_eq!(issues, 0, "no issue row");
+    let (keys,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM idempotency")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert_eq!(keys, 0, "no idempotency row");
+}
+
+#[tokio::test]
+async fn malformed_publish_by_id_path_is_404_and_enqueues_nothing() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+    let response = test_app
+        .api_client
+        .post(format!(
+            "{}/admin/newsletters/not-a-uuid/publish",
+            test_app.address
+        ))
+        .form(&serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status().as_u16(), 404);
+    let (queued,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM newsletter.issue_delivery_queue")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert_eq!(queued, 0);
 }
