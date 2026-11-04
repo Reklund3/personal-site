@@ -1,3 +1,4 @@
+use super::content_hash::{LOADED_HASH_FIELD, draft_content_hash};
 use crate::domain::NewsletterIssueStatus;
 use crate::utils::e500;
 use actix_web::HttpResponse;
@@ -163,6 +164,7 @@ pub async fn publish_newsletter_form(
             "",
             FormMode::Compose,
             None,
+            "",
         )))
 }
 
@@ -229,6 +231,7 @@ pub async fn edit_newsletter_form(
             &row.html_content,
             mode,
             Some(status_label(row.status)),
+            &draft_content_hash(&row.title, &row.text_content, &row.html_content),
         )))
 }
 
@@ -253,6 +256,7 @@ fn render_issue_form(
     html_content: &str,
     mode: FormMode,
     status_hint: Option<&str>,
+    loaded_hash: &str,
 ) -> String {
     let title_v = escape_attr(title);
     let text_v = escape_attr(text_content);
@@ -307,6 +311,7 @@ fn render_issue_form(
         <br>
         <input hidden type="text" name="idempotency_key" value="{idempotency_key}">
         <input hidden type="text" name="newsletter_issue_id" value="{issue_id}">
+        <input hidden type="text" name="{LOADED_HASH_FIELD}" value="">
         <button type="submit" formaction="/admin/newsletters/drafts" formmethod="post">Save draft</button>
         <button type="submit">Publish</button>
     </form>"#
@@ -344,6 +349,7 @@ fn render_issue_form(
         </label>
         <br>
         <input hidden type="text" name="newsletter_issue_id" value="{issue_id}">
+        <input hidden type="text" name="{LOADED_HASH_FIELD}" value="{loaded_hash}">
         <button type="submit">Save draft</button>
     </form>
     <form action="/admin/newsletters/{issue_id}/publish" method="post">

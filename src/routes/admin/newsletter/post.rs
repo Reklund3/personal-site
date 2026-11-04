@@ -1,3 +1,4 @@
+use super::content_hash::{ExpectedContent, draft_content_hash, parse_expected};
 use crate::authentication::UserId;
 use crate::domain::NewsletterIssueStatus;
 use crate::idempotency::{IdempotencyKey, NextAction, save_response, try_processing};
@@ -270,6 +271,9 @@ pub struct DraftFormData {
     text_content: String,
     html_content: String,
     newsletter_issue_id: String,
+    /// Hash of the content the form loaded (`content_hash`). Required: empty
+    /// means "expect no stored row" (compose page); a missing field is a 400.
+    loaded_content_hash: String,
     /// Present on the shared form; ignored — draft upsert needs no idempotency row.
     #[serde(default, rename = "idempotency_key")]
     _idempotency_key: Option<String>,
@@ -293,9 +297,11 @@ pub async fn save_newsletter_draft(
         text_content,
         html_content,
         newsletter_issue_id,
+        loaded_content_hash,
         _idempotency_key: _,
     } = form.0;
     let issue_id = Uuid::parse_str(&newsletter_issue_id).map_err(e400)?;
+    let expected = parse_expected(&loaded_content_hash).map_err(e400)?;
 
     let mut transaction = pool
         .begin()
@@ -303,9 +309,13 @@ pub async fn save_newsletter_draft(
         .context("Failed to begin draft-save transaction")
         .map_err(e500)?;
 
-    let existing = sqlx::query_scalar!(
+    let existing = sqlx::query!(
         r#"
-        SELECT status as "status: NewsletterIssueStatus"
+        SELECT
+            title,
+            text_content,
+            html_content,
+            status as "status: NewsletterIssueStatus"
         FROM newsletter.newsletter_issues
         WHERE newsletter_issue_id = $1
         FOR UPDATE
@@ -314,10 +324,16 @@ pub async fn save_newsletter_draft(
     )
     .fetch_optional(&mut *transaction)
     .await
-    .map_err(e500)?;
+    .map_err(e500)?
+    .map(|row| {
+        (
+            row.status,
+            draft_content_hash(&row.title, &row.text_content, &row.html_content),
+        )
+    });
 
-    if let Some(status) = existing
-        && status != NewsletterIssueStatus::Draft
+    if let Some((status, _)) = &existing
+        && *status != NewsletterIssueStatus::Draft
     {
         // Drop the txn without writing; content stays untouched.
         transaction
@@ -332,22 +348,82 @@ pub async fn save_newsletter_draft(
         return Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")));
     }
 
-    save_newsletter_issue(
-        &mut transaction,
-        issue_id,
-        &title,
-        &text_content,
-        &html_content,
-    )
-    .await
-    .context("Failed to store newsletter draft")
-    .map_err(e500)?;
+    // Stale-tab guard (R6): the stored row must be exactly what the form loaded.
+    // Compared under the FOR UPDATE above, so no save can slip in between.
+    let fresh = match (&expected, &existing) {
+        (ExpectedContent::Hash(loaded), Some((_, stored))) => loaded == stored,
+        (ExpectedContent::NoRow, None) => true,
+        // Compose page but a row now exists, or edit page but the row is gone.
+        _ => false,
+    };
+    if !fresh {
+        transaction
+            .rollback()
+            .await
+            .context("Failed to rollback stale draft-save transaction")
+            .map_err(e500)?;
+        FlashMessage::error(
+            "This draft changed since you opened it. Reload to see the latest version before saving.",
+        )
+        .send();
+        return Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")));
+    }
+
+    if existing.is_some() {
+        save_newsletter_issue(
+            &mut transaction,
+            issue_id,
+            &title,
+            &text_content,
+            &html_content,
+        )
+        .await
+        .context("Failed to store newsletter draft")
+        .map_err(e500)?;
+    } else {
+        // Expecting no row: insert-only, so a concurrent first save of the same
+        // compose id cannot be overwritten. If anything inserted meanwhile, the
+        // re-check below sees it (non-draft) or we refuse here (draft).
+        let inserted = insert_newsletter_issue(
+            &mut transaction,
+            issue_id,
+            &title,
+            &text_content,
+            &html_content,
+        )
+        .await
+        .context("Failed to insert newsletter draft")
+        .map_err(e500)?;
+        if !inserted {
+            let status_now = sqlx::query_scalar!(
+                r#"
+                SELECT status as "status: NewsletterIssueStatus"
+                FROM newsletter.newsletter_issues
+                WHERE newsletter_issue_id = $1
+                "#,
+                issue_id
+            )
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(e500)?;
+            if status_now == Some(NewsletterIssueStatus::Draft) {
+                transaction
+                    .rollback()
+                    .await
+                    .context("Failed to rollback draft-save after concurrent insert")
+                    .map_err(e500)?;
+                FlashMessage::error(
+                    "This draft changed since you opened it. Reload to see the latest version before saving.",
+                )
+                .send();
+                return Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")));
+            }
+        }
+    }
 
     // Re-read under the same txn. Covers the race where FOR UPDATE saw no row,
-    // then a concurrent publish-by-id inserted+queued before our upsert: ON CONFLICT
-    // ... WHERE status = 'draft' writes nothing, but we must not flash success.
-    // (Compose Publish is insert-only and would refuse rather than queue an
-    // existing id; publish-saved is the path that can race draft save.)
+    // then a concurrent compose Publish on the same compose-page id inserted and
+    // queued before our insert: nothing was written, but we must not flash success.
     let status_after = sqlx::query_scalar!(
         r#"
         SELECT status as "status: NewsletterIssueStatus"

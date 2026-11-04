@@ -1,4 +1,7 @@
-use crate::helpers::{ConfirmationLinks, TestApp, assert_is_redirect_to, spawn_app};
+use crate::helpers::{
+    ConfirmationLinks, TestApp, assert_is_redirect_to, extract_hidden_value, extract_loaded_hash,
+    spawn_app,
+};
 use fake::Fake;
 use fake::faker::internet::en::SafeEmail;
 use fake::faker::name::en::Name;
@@ -1969,12 +1972,16 @@ async fn concurrent_draft_save_and_publish_saved_never_false_draft_saved_on_non_
         test_app.login_client(&save_client).await;
         test_app.login_client(&publish_client).await;
 
+        // Save tab loaded the seed: carry its content hash like a browser would.
+        let loaded_hash =
+            extract_loaded_hash(&test_app.get_newsletter_edit_html(issue_id).await).unwrap();
         let draft_body = serde_json::json!({
             "title": "Draft race",
             "text_content": "draft plain",
             "html_content": "<p>draft</p>",
             "newsletter_issue_id": issue_id.to_string(),
-            "idempotency_key": uuid::Uuid::new_v4().to_string()
+            "idempotency_key": uuid::Uuid::new_v4().to_string(),
+            "loaded_content_hash": loaded_hash
         });
         let publish_body = serde_json::json!({
             "idempotency_key": uuid::Uuid::new_v4().to_string()
@@ -2364,4 +2371,176 @@ async fn empty_title_draft_lists_as_untitled() {
     assert!(!html.contains(&format!(
         r#"<a href="/admin/newsletters/{issue_id}/edit"></a>"#
     )));
+}
+
+async fn stored_content(test_app: &TestApp, issue_id: uuid::Uuid) -> (String, String, String) {
+    sqlx::query_as::<_, (String, String, String)>(
+        "SELECT title, text_content, html_content FROM newsletter.newsletter_issues \
+         WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_id)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap()
+}
+
+const STALE_FLASH: &str = "This draft changed since you opened it";
+
+#[tokio::test]
+async fn stale_tab_save_is_refused_and_publish_sends_newer_draft() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let v1 = serde_json::json!({
+        "title": "v1", "text_content": "v1 text", "html_content": "<p>v1</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+    });
+    let r = test_app.post_save_newsletter_draft(&v1).await;
+    assert_is_redirect_to(&r, &format!("/admin/newsletters/{issue_id}/edit"));
+
+    // Tab A loads v1.
+    let tab_a_html = test_app.get_newsletter_edit_html(issue_id).await;
+    let tab_a_hash = extract_loaded_hash(&tab_a_html).expect("edit page carries hash");
+    assert_eq!(tab_a_hash.len(), 64);
+
+    // Tab B (fresh load) saves v2.
+    let v2 = serde_json::json!({
+        "title": "v2", "text_content": "v2 text", "html_content": "<p>v2</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+    });
+    test_app.post_save_newsletter_draft(&v2).await;
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(html.contains("Draft saved."));
+    assert_ne!(extract_loaded_hash(&html).unwrap(), tab_a_hash);
+
+    // Tab A saves v1 with its stale hash: refused, v2 kept.
+    let mut stale = v1.clone();
+    stale["loaded_content_hash"] = tab_a_hash.into();
+    let r = test_app.post_save_newsletter_draft_raw(&stale).await;
+    assert_is_redirect_to(&r, &format!("/admin/newsletters/{issue_id}/edit"));
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(html.contains(STALE_FLASH), "stale flash expected: {html}");
+    assert!(!html.contains("Draft saved."));
+    assert_eq!(
+        stored_content(&test_app, issue_id).await,
+        ("v2".into(), "v2 text".into(), "<p>v2</p>".into())
+    );
+
+    // Tab A reloads (new hash) and publishes by id: v2 is what gets queued.
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+    let key = extract_hidden_value(&html, "idempotency_key").expect("publish key");
+    let r = test_app
+        .post_publish_saved_newsletter(issue_id, &serde_json::json!({ "idempotency_key": key }))
+        .await;
+    assert_is_redirect_to(&r, "/admin/newsletters");
+    let (status,): (String,) = sqlx::query_as(
+        "SELECT status::text FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_id)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert!(status == "queued" || status == "sent", "status {status}");
+    assert_eq!(stored_content(&test_app, issue_id).await.0, "v2");
+    test_app.dispatch_all_pending_emails().await;
+}
+
+#[tokio::test]
+async fn save_reload_save_succeeds_with_fresh_hash() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let issue_id = uuid::Uuid::new_v4();
+    for (i, title) in ["first", "second", "third"].iter().enumerate() {
+        let hash = if i == 0 {
+            String::new()
+        } else {
+            let html = test_app.get_newsletter_edit_html(issue_id).await;
+            extract_loaded_hash(&html).unwrap()
+        };
+        let r = test_app
+            .post_save_newsletter_draft_raw(&serde_json::json!({
+                "title": title, "text_content": "t", "html_content": "<p>t</p>",
+                "newsletter_issue_id": issue_id.to_string(),
+                "loaded_content_hash": hash,
+            }))
+            .await;
+        assert_is_redirect_to(&r, &format!("/admin/newsletters/{issue_id}/edit"));
+        let html = test_app.get_newsletter_edit_html(issue_id).await;
+        assert!(
+            html.contains("Draft saved."),
+            "save {i} must succeed: {html}"
+        );
+        assert_eq!(stored_content(&test_app, issue_id).await.0, *title);
+    }
+}
+
+#[tokio::test]
+async fn missing_malformed_or_tampered_hash_is_refused() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let issue_id = uuid::Uuid::new_v4();
+    test_app
+        .post_save_newsletter_draft(&serde_json::json!({
+            "title": "orig", "text_content": "t", "html_content": "h",
+            "newsletter_issue_id": issue_id.to_string(),
+        }))
+        .await;
+    let real = extract_loaded_hash(&test_app.get_newsletter_edit_html(issue_id).await).unwrap();
+    let body = |hash: Option<String>| {
+        let mut b = serde_json::json!({
+            "title": "evil", "text_content": "t", "html_content": "h",
+            "newsletter_issue_id": issue_id.to_string(),
+        });
+        if let Some(h) = hash {
+            b["loaded_content_hash"] = h.into();
+        }
+        b
+    };
+
+    // Missing field and malformed value: 400.
+    let r = test_app.post_save_newsletter_draft_raw(&body(None)).await;
+    assert_eq!(r.status().as_u16(), 400);
+    let r = test_app
+        .post_save_newsletter_draft_raw(&body(Some("not-hex".into())))
+        .await;
+    assert_eq!(r.status().as_u16(), 400);
+
+    // Well-formed but wrong (tampered) hash, and empty ("expect no row") on an
+    // existing row: refused with the stale flash.
+    let mut tampered = real.clone().into_bytes();
+    tampered[0] = if tampered[0] == b'0' { b'1' } else { b'0' };
+    for h in [String::from_utf8(tampered).unwrap(), String::new()] {
+        let r = test_app
+            .post_save_newsletter_draft_raw(&body(Some(h)))
+            .await;
+        assert_is_redirect_to(&r, &format!("/admin/newsletters/{issue_id}/edit"));
+        let html = test_app.get_newsletter_edit_html(issue_id).await;
+        assert!(html.contains(STALE_FLASH), "stale flash expected: {html}");
+    }
+    assert_eq!(stored_content(&test_app, issue_id).await.0, "orig");
+
+    // Non-empty hash for an id with no row is refused and inserts nothing.
+    let ghost = uuid::Uuid::new_v4();
+    let r = test_app
+        .post_save_newsletter_draft_raw(&serde_json::json!({
+            "title": "ghost", "text_content": "t", "html_content": "h",
+            "newsletter_issue_id": ghost.to_string(), "loaded_content_hash": real,
+        }))
+        .await;
+    assert_eq!(r.status().as_u16(), 303);
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1",
+    )
+    .bind(ghost)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(n, 0);
 }

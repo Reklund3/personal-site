@@ -125,7 +125,12 @@ it inserts the submitted form as a new draft then queues it; if that id already 
 Edit at `/admin/newsletters/{id}/edit` reuses the path id: **Save draft** only on the
 content form. **Publish** is a separate form (`POST /admin/newsletters/{id}/publish`)
 that queues the **stored** draft under `FOR UPDATE` (idempotency key only — no title/body),
-so a stale tab cannot send old form content. Non-draft issues render read-only (no POST
+so Publish never sends unsaved form content. Save draft carries a hidden
+`loaded_content_hash` (SHA-256 of the length-prefixed title/text/html the page loaded;
+the compose page sends it empty, meaning "expect no row"). The save compares it to the
+stored row under `FOR UPDATE` and refuses without writing on a mismatch ("This draft
+changed since you opened it…"), so a stale tab cannot silently overwrite a newer draft.
+A missing or malformed hash is a 400. Non-draft issues render read-only (no POST
 form); saving over them is rejected without changes. Content of a non-draft issue is never
 changed. `sent` is set when the issue's delivery queue is drained (or was empty at enqueue)
 — meaning every subscriber was *attempted*, not that every email API call succeeded. The

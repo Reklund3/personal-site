@@ -230,12 +230,65 @@ impl TestApp {
     where
         Body: serde::Serialize,
     {
+        let body = self.with_loaded_hash(client, body).await;
         client
+            .post(&format!("{}/admin/newsletters/drafts", &self.address))
+            .form(&body)
+            .send()
+            .await
+            .expect("Failed to execute draft save with client.")
+    }
+
+    /// Mimic a browser that just loaded the form: if the body has no
+    /// `loaded_content_hash`, take it from the current edit page (or "" when the
+    /// issue does not exist / is read-only, i.e. the compose page's empty field).
+    async fn with_loaded_hash<Body>(
+        &self,
+        client: &reqwest::Client,
+        body: &Body,
+    ) -> serde_json::Value
+    where
+        Body: serde::Serialize,
+    {
+        let mut value = serde_json::to_value(body).unwrap();
+        let obj = value.as_object_mut().expect("draft body must be an object");
+        if !obj.contains_key("loaded_content_hash") {
+            let hash = match obj
+                .get("newsletter_issue_id")
+                .and_then(|v| v.as_str())
+                .and_then(|s| uuid::Uuid::parse_str(s).ok())
+            {
+                Some(id) => {
+                    let response = client
+                        .get(format!("{}/admin/newsletters/{id}/edit", &self.address))
+                        .send()
+                        .await
+                        .expect("Failed to load edit page for hash.");
+                    if response.status().as_u16() == 200 {
+                        extract_loaded_hash(&response.text().await.unwrap()).unwrap_or_default()
+                    } else {
+                        String::new()
+                    }
+                }
+                None => String::new(),
+            };
+            obj.insert("loaded_content_hash".into(), hash.into());
+        }
+        value
+    }
+
+    /// Post a draft save exactly as given (no hash injection).
+    #[allow(dead_code)]
+    pub async fn post_save_newsletter_draft_raw<Body>(&self, body: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.api_client
             .post(&format!("{}/admin/newsletters/drafts", &self.address))
             .form(body)
             .send()
             .await
-            .expect("Failed to execute draft save with client.")
+            .expect("Failed to execute request.")
     }
 
     #[allow(dead_code)]
@@ -263,12 +316,9 @@ impl TestApp {
     where
         Body: serde::Serialize,
     {
-        self.api_client
-            .post(&format!("{}/admin/newsletters/drafts", &self.address))
-            .form(body)
-            .send()
+        let client = self.api_client.clone();
+        self.post_save_newsletter_draft_with_client(&client, body)
             .await
-            .expect("Failed to execute request.")
     }
 
     pub async fn post_publish_saved_newsletter<Body>(
@@ -491,4 +541,19 @@ impl TestUser {
 pub fn assert_is_redirect_to(response: &reqwest::Response, location: &str) {
     assert_eq!(response.status().as_u16(), 303);
     assert_eq!(response.headers().get("Location").unwrap(), location);
+}
+
+/// Value of the hidden `loaded_content_hash` input on an edit page, if any.
+#[allow(dead_code)]
+pub fn extract_loaded_hash(html: &str) -> Option<String> {
+    extract_hidden_value(html, "loaded_content_hash")
+}
+
+/// Value of the first hidden input named `name`.
+#[allow(dead_code)]
+pub fn extract_hidden_value(html: &str, name: &str) -> Option<String> {
+    let marker = format!(r#"name="{name}" value=""#);
+    let start = html.find(&marker)? + marker.len();
+    let end = html[start..].find('"')? + start;
+    Some(html[start..end].to_owned())
 }
