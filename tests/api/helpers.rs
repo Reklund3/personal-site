@@ -172,6 +172,192 @@ impl TestApp {
             .expect("Failed to execute request.")
     }
 
+    pub async fn get_newsletter_new_form(&self) -> reqwest::Response {
+        self.api_client
+            .get(&format!("{}/admin/newsletters/new", &self.address))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub async fn get_newsletter_edit(&self, issue_id: uuid::Uuid) -> reqwest::Response {
+        self.api_client
+            .get(&format!(
+                "{}/admin/newsletters/{}/edit",
+                &self.address, issue_id
+            ))
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    pub async fn get_newsletter_edit_html(&self, issue_id: uuid::Uuid) -> String {
+        let response = self.get_newsletter_edit(issue_id).await;
+        assert_eq!(
+            response.status().as_u16(),
+            200,
+            "edit page should be 200 OK"
+        );
+        response.text().await.unwrap()
+    }
+
+    /// Fresh reqwest client with its own cookie jar (separate session).
+    pub fn fresh_api_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .cookie_store(true)
+            .build()
+            .unwrap()
+    }
+
+    pub async fn login_client(&self, client: &reqwest::Client) {
+        client
+            .post(&format!("{}/login", &self.address))
+            .form(&serde_json::json!({
+                "username": &self.test_user.username,
+                "password": &self.test_user.password
+            }))
+            .send()
+            .await
+            .expect("Failed to login with fresh client.");
+    }
+
+    pub async fn post_save_newsletter_draft_with_client<Body>(
+        &self,
+        client: &reqwest::Client,
+        body: &Body,
+    ) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        let body = self.with_loaded_hash(client, body).await;
+        client
+            .post(&format!("{}/admin/newsletters/drafts", &self.address))
+            .form(&body)
+            .send()
+            .await
+            .expect("Failed to execute draft save with client.")
+    }
+
+    /// Mimic a browser that just loaded the form: if the body has no
+    /// `loaded_content_hash`, take it from the current edit page (or "" when the
+    /// issue does not exist / is read-only, i.e. the compose page's empty field).
+    /// Missing `idempotency_key` is filled from the edit page when present, else a
+    /// freshly minted UUIDv7 (compose-style first save).
+    async fn with_loaded_hash<Body>(
+        &self,
+        client: &reqwest::Client,
+        body: &Body,
+    ) -> serde_json::Value
+    where
+        Body: serde::Serialize,
+    {
+        let mut value = serde_json::to_value(body).unwrap();
+        let obj = value.as_object_mut().expect("draft body must be an object");
+        let need_hash = !obj.contains_key("loaded_content_hash");
+        let need_key = !obj.contains_key("idempotency_key");
+        if need_hash || need_key {
+            let page_html = match obj
+                .get("newsletter_issue_id")
+                .and_then(|v| v.as_str())
+                .and_then(|s| uuid::Uuid::parse_str(s).ok())
+            {
+                Some(id) => {
+                    let response = client
+                        .get(format!("{}/admin/newsletters/{id}/edit", &self.address))
+                        .send()
+                        .await
+                        .expect("Failed to load edit page for hash/key.");
+                    if response.status().as_u16() == 200 {
+                        Some(response.text().await.unwrap())
+                    } else {
+                        None
+                    }
+                }
+                None => None,
+            };
+            if need_hash {
+                let hash = page_html
+                    .as_deref()
+                    .and_then(extract_loaded_hash)
+                    .unwrap_or_default();
+                obj.insert("loaded_content_hash".into(), hash.into());
+            }
+            if need_key {
+                let key = page_html
+                    .as_deref()
+                    .and_then(|html| extract_hidden_value(html, "idempotency_key"))
+                    .filter(|k| !k.is_empty() && k != "00000000-0000-0000-0000-000000000000")
+                    .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+                obj.insert("idempotency_key".into(), key.into());
+            }
+        }
+        value
+    }
+
+    /// Post a draft save exactly as given (no hash injection).
+    #[allow(dead_code)]
+    pub async fn post_save_newsletter_draft_raw<Body>(&self, body: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.api_client
+            .post(&format!("{}/admin/newsletters/drafts", &self.address))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
+    #[allow(dead_code)]
+    pub async fn post_publish_saved_newsletter_with_client<Body>(
+        &self,
+        client: &reqwest::Client,
+        issue_id: uuid::Uuid,
+        body: &Body,
+    ) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        client
+            .post(&format!(
+                "{}/admin/newsletters/{}/publish",
+                &self.address, issue_id
+            ))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute publish-saved with client.")
+    }
+
+    pub async fn post_save_newsletter_draft<Body>(&self, body: &Body) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        let client = self.api_client.clone();
+        self.post_save_newsletter_draft_with_client(&client, body)
+            .await
+    }
+
+    pub async fn post_publish_saved_newsletter<Body>(
+        &self,
+        issue_id: uuid::Uuid,
+        body: &Body,
+    ) -> reqwest::Response
+    where
+        Body: serde::Serialize,
+    {
+        self.api_client
+            .post(&format!(
+                "{}/admin/newsletters/{}/publish",
+                &self.address, issue_id
+            ))
+            .form(body)
+            .send()
+            .await
+            .expect("Failed to execute request.")
+    }
+
     pub async fn get_resume(&self) -> reqwest::Response {
         self.api_client
             .get(&format!("{}/resume", &self.address))
@@ -373,4 +559,19 @@ impl TestUser {
 pub fn assert_is_redirect_to(response: &reqwest::Response, location: &str) {
     assert_eq!(response.status().as_u16(), 303);
     assert_eq!(response.headers().get("Location").unwrap(), location);
+}
+
+/// Value of the hidden `loaded_content_hash` input on an edit page, if any.
+#[allow(dead_code)]
+pub fn extract_loaded_hash(html: &str) -> Option<String> {
+    extract_hidden_value(html, "loaded_content_hash")
+}
+
+/// Value of the first hidden input named `name`.
+#[allow(dead_code)]
+pub fn extract_hidden_value(html: &str, name: &str) -> Option<String> {
+    let marker = format!(r#"name="{name}" value=""#);
+    let start = html.find(&marker)? + marker.len();
+    let end = html[start..].find('"')? + start;
+    Some(html[start..end].to_owned())
 }

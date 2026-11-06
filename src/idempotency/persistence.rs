@@ -1,4 +1,4 @@
-use super::IdempotencyKey;
+use super::{IdempotencyAction, IdempotencyKey};
 use actix_web::HttpResponse;
 use actix_web::body::to_bytes;
 use actix_web::http::StatusCode;
@@ -16,7 +16,7 @@ struct HeaderPairRecord {
 pub async fn get_saved_response(
     pool: &PgPool,
     idempotency_key: &IdempotencyKey,
-    user_id: Uuid,
+    action: IdempotencyAction,
 ) -> Result<Option<HttpResponse>, anyhow::Error> {
     let saved_response = sqlx::query!(
         r#"
@@ -26,11 +26,11 @@ pub async fn get_saved_response(
             response_body as "response_body!"
         FROM idempotency
         WHERE
-          user_id = $1 AND
-          idempotency_key = $2
+          idempotency_key = $1 AND
+          action = $2
         "#,
-        user_id,
-        idempotency_key.as_ref()
+        idempotency_key.as_ref(),
+        action.as_str()
     )
     .fetch_optional(pool)
     .await?;
@@ -49,7 +49,7 @@ pub async fn get_saved_response(
 pub async fn save_response(
     mut transaction: Transaction<'static, Postgres>,
     idempotency_key: &IdempotencyKey,
-    user_id: Uuid,
+    action: IdempotencyAction,
     http_response: HttpResponse,
 ) -> Result<HttpResponse, anyhow::Error> {
     let (response_head, body) = http_response.into_parts();
@@ -73,11 +73,11 @@ pub async fn save_response(
             response_headers = $4,
             response_body = $5
         WHERE
-            user_id = $1 AND
-            idempotency_key = $2
+            idempotency_key = $1 AND
+            action = $2
         "#,
-            user_id,
             idempotency_key.as_ref(),
+            action.as_str(),
             status_code,
             headers,
             body.as_ref()
@@ -100,6 +100,7 @@ pub async fn try_processing(
     pool: &PgPool,
     idempotency_key: &IdempotencyKey,
     user_id: Uuid,
+    action: IdempotencyAction,
 ) -> Result<NextAction, anyhow::Error> {
     let mut transaction = pool.begin().await?;
     let query = sqlx::query!(
@@ -107,19 +108,21 @@ pub async fn try_processing(
         INSERT INTO idempotency (
             user_id,
             idempotency_key,
+            action,
             created_at
         )
-        VALUES ($1, $2, now())
+        VALUES ($1, $2, $3, now())
         ON CONFLICT DO NOTHING
         "#,
         user_id,
-        idempotency_key.as_ref()
+        idempotency_key.as_ref(),
+        action.as_str()
     );
     let n_inserted_rows = transaction.execute(query).await?.rows_affected();
     if n_inserted_rows > 0 {
         Ok(NextAction::StartProcessing(transaction))
     } else {
-        let saved_response = get_saved_response(pool, idempotency_key, user_id)
+        let saved_response = get_saved_response(pool, idempotency_key, action)
             .await?
             .ok_or_else(|| anyhow::anyhow!("We expected a saved response, we didn't find it"))?;
         Ok(NextAction::ReturnSavedResponse(saved_response))

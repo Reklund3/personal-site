@@ -30,6 +30,7 @@ secrecy = {  version = "0.8", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde-aux = "4.2"
+sha2 = "0.10"
 thiserror = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 tracing = { version = "0.1", features = ["log"] }
@@ -38,7 +39,7 @@ tracing-bunyan-formatter = "0.3"
 tracing-log = "0.2"
 tracing-subscriber = { version = "0.3", features = ["registry", "env-filter"] }
 unicode-segmentation = "1.12.0"
-uuid = {version = "1", features = ["v4", "v5", "serde"]}
+uuid = {version = "1", features = ["v4", "v5", "v7", "serde"]}
 validator = "0.20"
 
 [dependencies.sqlx]
