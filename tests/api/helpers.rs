@@ -242,6 +242,8 @@ impl TestApp {
     /// Mimic a browser that just loaded the form: if the body has no
     /// `loaded_content_hash`, take it from the current edit page (or "" when the
     /// issue does not exist / is read-only, i.e. the compose page's empty field).
+    /// Missing `idempotency_key` is filled from the edit page when present, else a
+    /// freshly minted UUIDv7 (compose-style first save).
     async fn with_loaded_hash<Body>(
         &self,
         client: &reqwest::Client,
@@ -252,8 +254,10 @@ impl TestApp {
     {
         let mut value = serde_json::to_value(body).unwrap();
         let obj = value.as_object_mut().expect("draft body must be an object");
-        if !obj.contains_key("loaded_content_hash") {
-            let hash = match obj
+        let need_hash = !obj.contains_key("loaded_content_hash");
+        let need_key = !obj.contains_key("idempotency_key");
+        if need_hash || need_key {
+            let page_html = match obj
                 .get("newsletter_issue_id")
                 .and_then(|v| v.as_str())
                 .and_then(|s| uuid::Uuid::parse_str(s).ok())
@@ -263,16 +267,30 @@ impl TestApp {
                         .get(format!("{}/admin/newsletters/{id}/edit", &self.address))
                         .send()
                         .await
-                        .expect("Failed to load edit page for hash.");
+                        .expect("Failed to load edit page for hash/key.");
                     if response.status().as_u16() == 200 {
-                        extract_loaded_hash(&response.text().await.unwrap()).unwrap_or_default()
+                        Some(response.text().await.unwrap())
                     } else {
-                        String::new()
+                        None
                     }
                 }
-                None => String::new(),
+                None => None,
             };
-            obj.insert("loaded_content_hash".into(), hash.into());
+            if need_hash {
+                let hash = page_html
+                    .as_deref()
+                    .and_then(extract_loaded_hash)
+                    .unwrap_or_default();
+                obj.insert("loaded_content_hash".into(), hash.into());
+            }
+            if need_key {
+                let key = page_html
+                    .as_deref()
+                    .and_then(|html| extract_hidden_value(html, "idempotency_key"))
+                    .filter(|k| !k.is_empty() && k != "00000000-0000-0000-0000-000000000000")
+                    .unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
+                obj.insert("idempotency_key".into(), key.into());
+            }
         }
         value
     }

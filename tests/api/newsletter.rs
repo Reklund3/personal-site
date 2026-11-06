@@ -67,7 +67,7 @@ async fn newsletters_are_not_delivered_to_unconfirmed_subscribers() {
         "title": "Newsletter title",
         "text_content": "Newsletter body as plain text",
         "html_content": "<p>Newsletter body as HTML</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app
         .post_publish_newsletter(&newsletter_request_body)
@@ -114,7 +114,7 @@ async fn newsletters_are_delivered_to_confirmed_subscribers() {
         "title": "Newsletter title",
         "text_content": "Newsletter body as plain text",
         "html_content": "<p>Newsletter body as HTML</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app
         .post_publish_newsletter(&newsletter_request_body)
@@ -150,7 +150,7 @@ async fn you_must_be_logged_in_to_publish_a_newsletter() {
         "title": "Newsletter title",
         "text_content": "Newsletter body as plain text",
         "html_content": "<p>Newsletter body as HTML</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app
         .post_publish_newsletter(&newsletter_request_body)
@@ -180,7 +180,7 @@ async fn newsletter_creation_is_idempotent() {
         "html_content": "<p>Newsletter body as HTML</p>",
         // We expect the idempotency key as part of the
         // form data, not as an header
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app
         .post_publish_newsletter(&newsletter_request_body)
@@ -232,7 +232,7 @@ async fn concurrent_form_submission_is_handled_gracefully() {
         "title": "Newsletter title",
         "text_content": "Newsletter body as plain text",
         "html_content": "<p>Newsletter body as HTML</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response1 = app.post_publish_newsletter(&newsletter_request_body);
     let response2 = app.post_publish_newsletter(&newsletter_request_body);
@@ -264,7 +264,7 @@ async fn publish_sets_issue_status_to_queued_then_worker_marks_sent() {
         "title": "Status transition issue",
         "text_content": "plain",
         "html_content": "<p>html</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app
         .post_publish_newsletter(&newsletter_request_body)
@@ -429,7 +429,7 @@ async fn publish_of_already_handled_issue_flashes_and_does_not_enqueue() {
         .await;
 
     let newsletter_request_body = serde_json::json!({
-        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+        "idempotency_key": uuid::Uuid::now_v7().to_string(),
     });
     let response = test_app
         .post_publish_saved_newsletter(issue_id, &newsletter_request_body)
@@ -481,7 +481,7 @@ async fn idempotent_replay_of_already_handled_issue_keeps_already_handled_flash(
     .unwrap();
 
     let newsletter_request_body = serde_json::json!({
-        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+        "idempotency_key": uuid::Uuid::now_v7().to_string(),
     });
 
     let response = test_app
@@ -535,7 +535,7 @@ async fn idempotent_replay_flash_follows_first_outcome_not_replay_body() {
     .await
     .unwrap();
 
-    let key_a = uuid::Uuid::new_v4().to_string();
+    let key_a = uuid::Uuid::now_v7().to_string();
     let first_a = serde_json::json!({
         "idempotency_key": key_a,
     });
@@ -569,7 +569,7 @@ async fn idempotent_replay_flash_follows_first_outcome_not_replay_body() {
         .mount(&test_app.email_server)
         .await;
 
-    let key_b = uuid::Uuid::new_v4().to_string();
+    let key_b = uuid::Uuid::now_v7().to_string();
     let first_b = serde_json::json!({
         "title": "Fresh issue",
         "text_content": "plain",
@@ -639,7 +639,7 @@ async fn email_5xx_does_not_mark_issue_failed() {
         "title": "Will fail to send",
         "text_content": "plain",
         "html_content": "<p>html</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app
         .post_publish_newsletter(&newsletter_request_body)
@@ -696,7 +696,7 @@ async fn zero_confirmed_subscribers_marks_issue_sent_on_publish() {
         "title": "Nobody to email",
         "text_content": "plain",
         "html_content": "<p>html</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app
         .post_publish_newsletter(&newsletter_request_body)
@@ -762,7 +762,7 @@ async fn publish_saved_queues_stored_draft_content_unchanged() {
     let response = test_app
         .post_publish_saved_newsletter(
             issue_id,
-            &serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+            &serde_json::json!({ "idempotency_key": uuid::Uuid::now_v7().to_string() }),
         )
         .await;
     assert_is_redirect_to(&response, "/admin/newsletters");
@@ -988,7 +988,7 @@ async fn posting_with_an_unused_issue_id_creates_the_issue_under_that_id() {
         "title": "Brand new issue",
         "text_content": "new text",
         "html_content": "<p>new</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+        "idempotency_key": uuid::Uuid::now_v7().to_string(),
         "newsletter_issue_id": issue_id.to_string()
     });
     let response = test_app
@@ -1047,7 +1047,7 @@ async fn resubmitting_a_queued_issue_id_does_not_change_its_content() {
         "title": "Original title",
         "text_content": "original text",
         "html_content": "<p>original</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+        "idempotency_key": uuid::Uuid::now_v7().to_string(),
         "newsletter_issue_id": issue_id.to_string()
     });
     let response = test_app.post_publish_newsletter(&first).await;
@@ -1059,7 +1059,7 @@ async fn resubmitting_a_queued_issue_id_does_not_change_its_content() {
         "title": "Changed title",
         "text_content": "changed text",
         "html_content": "<p>changed</p>",
-        "idempotency_key": uuid::Uuid::new_v4().to_string(),
+        "idempotency_key": uuid::Uuid::now_v7().to_string(),
         "newsletter_issue_id": issue_id.to_string()
     });
     let response = test_app.post_publish_newsletter(&second).await;
@@ -1188,7 +1188,7 @@ async fn publish_requires_title_and_content_even_with_an_issue_id() {
             serde_json::json!({
                 "text_content": "text",
                 "html_content": "<p>html</p>",
-                "idempotency_key": uuid::Uuid::new_v4().to_string(),
+                "idempotency_key": uuid::Uuid::now_v7().to_string(),
                 "newsletter_issue_id": uuid::Uuid::new_v4().to_string()
             }),
             "missing title",
@@ -1197,7 +1197,7 @@ async fn publish_requires_title_and_content_even_with_an_issue_id() {
             serde_json::json!({
                 "title": "Title",
                 "html_content": "<p>html</p>",
-                "idempotency_key": uuid::Uuid::new_v4().to_string(),
+                "idempotency_key": uuid::Uuid::now_v7().to_string(),
                 "newsletter_issue_id": uuid::Uuid::new_v4().to_string()
             }),
             "missing text content",
@@ -1206,7 +1206,7 @@ async fn publish_requires_title_and_content_even_with_an_issue_id() {
             serde_json::json!({
                 "title": "Title",
                 "text_content": "text",
-                "idempotency_key": uuid::Uuid::new_v4().to_string(),
+                "idempotency_key": uuid::Uuid::now_v7().to_string(),
                 "newsletter_issue_id": uuid::Uuid::new_v4().to_string()
             }),
             "missing html content",
@@ -1368,7 +1368,7 @@ async fn save_draft_enqueues_nothing_and_leaves_status_draft() {
         "text_content": "draft plain",
         "html_content": "<p>draft html</p>",
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app.post_save_newsletter_draft(&body).await;
     assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
@@ -1417,7 +1417,7 @@ async fn save_edit_then_publish_enqueues_once_with_edited_content() {
         "text_content": "first plain",
         "html_content": "<p>first</p>",
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app.post_save_newsletter_draft(&save_body).await;
     assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
@@ -1427,7 +1427,7 @@ async fn save_edit_then_publish_enqueues_once_with_edited_content() {
         "text_content": "edited plain",
         "html_content": "<p>edited</p>",
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app.post_save_newsletter_draft(&edit_body).await;
     assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
@@ -1463,7 +1463,7 @@ async fn save_edit_then_publish_enqueues_once_with_edited_content() {
     let response = test_app
         .post_publish_saved_newsletter(
             issue_id,
-            &serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+            &serde_json::json!({ "idempotency_key": uuid::Uuid::now_v7().to_string() }),
         )
         .await;
     assert_is_redirect_to(&response, "/admin/newsletters");
@@ -1535,7 +1535,7 @@ async fn save_draft_over_queued_issue_is_rejected_without_changes() {
         "text_content": "should not land",
         "html_content": "<p>nope</p>",
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app.post_save_newsletter_draft(&body).await;
     assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
@@ -1590,7 +1590,7 @@ async fn draft_routes_require_login() {
         "text_content": "y",
         "html_content": "z",
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = app.post_save_newsletter_draft(&body).await;
     assert_is_redirect_to(&response, "/login");
@@ -1598,7 +1598,7 @@ async fn draft_routes_require_login() {
     let response = app
         .post_publish_saved_newsletter(
             issue_id,
-            &serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+            &serde_json::json!({ "idempotency_key": uuid::Uuid::now_v7().to_string() }),
         )
         .await;
     assert_is_redirect_to(&response, "/login");
@@ -1634,7 +1634,7 @@ async fn edit_form_wires_path_id_and_has_no_content_publish() {
             "text_content": "x",
             "html_content": "<p>x</p>",
             "newsletter_issue_id": issue_id.to_string(),
-            "idempotency_key": uuid::Uuid::new_v4().to_string()
+            "idempotency_key": uuid::Uuid::now_v7().to_string()
         }))
         .await;
 
@@ -1652,6 +1652,7 @@ async fn edit_form_wires_path_id_and_has_no_content_publish() {
     let key = extract_hidden_value(&html, "idempotency_key")
         .expect("publish-by-id form needs an idempotency key");
     let key = uuid::Uuid::parse_str(&key).expect("publish key must be a UUID");
+    assert_eq!(key.get_version_num(), 7, "form-minted key must be UUIDv7");
     assert!(!key.is_nil(), "publish key must not be the nil UUID");
     let html_again = test_app.get_newsletter_edit_html(issue_id).await;
     let key_again = extract_hidden_value(&html_again, "idempotency_key").unwrap();
@@ -1684,7 +1685,7 @@ async fn list_page_shows_drafts_with_edit_links() {
         "text_content": "plain",
         "html_content": "<p>x</p>",
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     test_app.post_save_newsletter_draft(&body).await;
     sqlx::query!(
@@ -1784,7 +1785,7 @@ async fn prefilled_and_listed_titles_are_html_escaped() {
         "text_content": nasty_text,
         "html_content": nasty_html,
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     test_app.post_save_newsletter_draft(&body).await;
 
@@ -1858,7 +1859,7 @@ async fn prefilled_and_listed_titles_are_html_escaped() {
         "text_content": nasty_text,
         "html_content": nasty_html,
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app.post_publish_newsletter(&stale).await;
     assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
@@ -1878,17 +1879,18 @@ async fn prefilled_and_listed_titles_are_html_escaped() {
 }
 
 #[tokio::test]
-async fn draft_save_does_not_write_idempotency_row() {
+async fn draft_save_writes_idempotency_row_under_save_draft_action() {
     let test_app = spawn_app().await;
     test_app.test_user.login(&test_app).await;
 
     let issue_id = uuid::Uuid::new_v4();
-    let key = uuid::Uuid::new_v4();
+    let key = uuid::Uuid::now_v7();
     let body = serde_json::json!({
-        "title": "No idem row",
+        "title": "Idem row",
         "text_content": "x",
         "html_content": "<p>x</p>",
         "newsletter_issue_id": issue_id.to_string(),
+        "loaded_content_hash": "",
         "idempotency_key": key.to_string()
     });
     let response = test_app.post_save_newsletter_draft(&body).await;
@@ -1904,14 +1906,14 @@ async fn draft_save_does_not_write_idempotency_row() {
     .unwrap();
     assert_eq!(draft_count, Some(1));
 
-    let idem_count = sqlx::query_scalar!(
-        r#"SELECT COUNT(*) FROM idempotency WHERE idempotency_key = $1"#,
+    let action = sqlx::query_scalar!(
+        r#"SELECT action FROM idempotency WHERE idempotency_key = $1"#,
         key.to_string()
     )
     .fetch_one(&test_app.pg_pool)
     .await
     .unwrap();
-    assert_eq!(idem_count, Some(0));
+    assert_eq!(action, "save_draft");
 }
 
 #[tokio::test]
@@ -1953,7 +1955,7 @@ async fn malformed_newsletter_issue_id_in_draft_post_is_400() {
         "text_content": "y",
         "html_content": "z",
         "newsletter_issue_id": "not-a-uuid",
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app.post_save_newsletter_draft(&body).await;
     assert_eq!(response.status().as_u16(), 400);
@@ -2090,13 +2092,14 @@ async fn race_save_then_publish_by_id_queues_saved_content() {
         serde_json::json!({
             "title": "Saved title", "text_content": "saved plain", "html_content": "<p>saved</p>",
             "newsletter_issue_id": issue_id.to_string(), "loaded_content_hash": hash,
+            "idempotency_key": uuid::Uuid::now_v7().to_string(),
         }),
     );
     wait_for_lock_waiters(&test_app, 1).await;
     let publish = spawn_post(
         publish_client,
         format!("{}/admin/newsletters/{issue_id}/publish", test_app.address),
-        serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+        serde_json::json!({ "idempotency_key": uuid::Uuid::now_v7().to_string() }),
     );
     wait_for_lock_waiters(&test_app, 2).await;
     gate.rollback().await.unwrap();
@@ -2133,7 +2136,7 @@ async fn race_publish_by_id_then_save_refuses_save() {
     let publish = spawn_post(
         publish_client,
         format!("{}/admin/newsletters/{issue_id}/publish", test_app.address),
-        serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+        serde_json::json!({ "idempotency_key": uuid::Uuid::now_v7().to_string() }),
     );
     wait_for_lock_waiters(&test_app, 1).await;
     let save = spawn_post(
@@ -2142,6 +2145,7 @@ async fn race_publish_by_id_then_save_refuses_save() {
         serde_json::json!({
             "title": "Late title", "text_content": "late plain", "html_content": "<p>late</p>",
             "newsletter_issue_id": issue_id.to_string(), "loaded_content_hash": hash,
+            "idempotency_key": uuid::Uuid::now_v7().to_string(),
         }),
     );
     wait_for_lock_waiters(&test_app, 2).await;
@@ -2199,7 +2203,7 @@ async fn race_compose_publish_inserts_before_first_save_refuses_save() {
         serde_json::json!({
             "title": "Published title", "text_content": "pub plain", "html_content": "<p>pub</p>",
             "newsletter_issue_id": issue_id.to_string(),
-            "idempotency_key": uuid::Uuid::new_v4().to_string(),
+            "idempotency_key": uuid::Uuid::now_v7().to_string(),
         }),
     );
     wait_for_lock_waiters(&test_app, 1).await;
@@ -2209,6 +2213,7 @@ async fn race_compose_publish_inserts_before_first_save_refuses_save() {
         serde_json::json!({
             "title": "Compose save", "text_content": "save plain", "html_content": "<p>save</p>",
             "newsletter_issue_id": issue_id.to_string(), "loaded_content_hash": "",
+            "idempotency_key": uuid::Uuid::now_v7().to_string(),
         }),
     );
     wait_for_lock_waiters(&test_app, 2).await;
@@ -2248,7 +2253,7 @@ async fn compose_publish_after_save_refuses_without_overwrite_or_enqueue() {
         "text_content": "plain v1",
         "html_content": "<p>v1</p>",
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     test_app.post_save_newsletter_draft(&v1).await;
 
@@ -2257,7 +2262,7 @@ async fn compose_publish_after_save_refuses_without_overwrite_or_enqueue() {
         "text_content": "plain v2",
         "html_content": "<p>v2</p>",
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     test_app.post_save_newsletter_draft(&v2).await;
 
@@ -2317,7 +2322,7 @@ async fn compose_publish_after_save_refuses_without_overwrite_or_enqueue() {
     let response = test_app
         .post_publish_saved_newsletter(
             issue_id,
-            &serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+            &serde_json::json!({ "idempotency_key": uuid::Uuid::now_v7().to_string() }),
         )
         .await;
     assert_is_redirect_to(&response, "/admin/newsletters");
@@ -2355,7 +2360,7 @@ async fn compose_publish_idempotent_replay_skips_already_exists_check() {
         .await;
 
     let issue_id = uuid::Uuid::new_v4();
-    let key = uuid::Uuid::new_v4().to_string();
+    let key = uuid::Uuid::now_v7().to_string();
     let body = serde_json::json!({
         "title": "Once",
         "text_content": "plain",
@@ -2396,7 +2401,7 @@ async fn publish_saved_unknown_id_returns_404() {
     let response = test_app
         .post_publish_saved_newsletter(
             uuid::Uuid::new_v4(),
-            &serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }),
+            &serde_json::json!({ "idempotency_key": uuid::Uuid::now_v7().to_string() }),
         )
         .await;
     assert_eq!(response.status().as_u16(), 404);
@@ -2417,7 +2422,7 @@ async fn textarea_round_trip_preserves_leading_newline() {
         "text_content": text_content,
         "html_content": html_content,
         "newsletter_issue_id": issue_id.to_string(),
-        "idempotency_key": uuid::Uuid::new_v4().to_string()
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
     });
     let response = test_app.post_save_newsletter_draft(&body).await;
     assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
@@ -2459,7 +2464,7 @@ async fn empty_title_draft_lists_as_untitled() {
             "text_content": "body",
             "html_content": "<p>body</p>",
             "newsletter_issue_id": issue_id.to_string(),
-            "idempotency_key": uuid::Uuid::new_v4().to_string()
+            "idempotency_key": uuid::Uuid::now_v7().to_string()
         }))
         .await;
     let html = test_app.get_publish_newsletter_html().await;
@@ -2513,8 +2518,11 @@ async fn stale_tab_save_is_refused_and_publish_sends_newer_draft() {
     assert_ne!(extract_loaded_hash(&html).unwrap(), tab_a_hash);
 
     // Tab A saves v1 with its stale hash: refused, v2 kept.
+    // Use the key Tab A minted when it loaded (still valid v7); missing key is 400.
+    let tab_a_key = extract_hidden_value(&tab_a_html, "idempotency_key").expect("tab A key");
     let mut stale = v1.clone();
     stale["loaded_content_hash"] = tab_a_hash.into();
+    stale["idempotency_key"] = tab_a_key.into();
     let r = test_app.post_save_newsletter_draft_raw(&stale).await;
     assert_is_redirect_to(&r, &format!("/admin/newsletters/{issue_id}/edit"));
     let html = test_app.get_newsletter_edit_html(issue_id).await;
@@ -2561,11 +2569,13 @@ async fn save_reload_save_succeeds_with_fresh_hash() {
             let html = test_app.get_newsletter_edit_html(issue_id).await;
             extract_loaded_hash(&html).unwrap()
         };
+        // Each intentional save needs a fresh key (reload mints a new UUIDv7).
         let r = test_app
             .post_save_newsletter_draft_raw(&serde_json::json!({
                 "title": title, "text_content": "t", "html_content": "<p>t</p>",
                 "newsletter_issue_id": issue_id.to_string(),
                 "loaded_content_hash": hash,
+                "idempotency_key": uuid::Uuid::now_v7().to_string(),
             }))
             .await;
         assert_is_redirect_to(&r, &format!("/admin/newsletters/{issue_id}/edit"));
@@ -2594,6 +2604,7 @@ async fn missing_malformed_or_tampered_hash_is_refused() {
         let mut b = serde_json::json!({
             "title": "evil", "text_content": "t", "html_content": "h",
             "newsletter_issue_id": issue_id.to_string(),
+            "idempotency_key": uuid::Uuid::now_v7().to_string(),
         });
         if let Some(h) = hash {
             b["loaded_content_hash"] = h.into();
@@ -2629,6 +2640,7 @@ async fn missing_malformed_or_tampered_hash_is_refused() {
         .post_save_newsletter_draft_raw(&serde_json::json!({
             "title": "ghost", "text_content": "t", "html_content": "h",
             "newsletter_issue_id": ghost.to_string(), "loaded_content_hash": real,
+            "idempotency_key": uuid::Uuid::now_v7().to_string(),
         }))
         .await;
     assert_eq!(r.status().as_u16(), 303);
@@ -2650,7 +2662,7 @@ async fn malformed_newsletter_issue_id_in_compose_publish_is_400_and_writes_noth
         .post_publish_newsletter(&serde_json::json!({
             "title": "x", "text_content": "y", "html_content": "z",
             "newsletter_issue_id": "not-a-uuid",
-            "idempotency_key": uuid::Uuid::new_v4().to_string()
+            "idempotency_key": uuid::Uuid::now_v7().to_string()
         }))
         .await;
     assert_eq!(response.status().as_u16(), 400);
@@ -2677,7 +2689,7 @@ async fn malformed_publish_by_id_path_is_404_and_enqueues_nothing() {
             "{}/admin/newsletters/not-a-uuid/publish",
             test_app.address
         ))
-        .form(&serde_json::json!({ "idempotency_key": uuid::Uuid::new_v4().to_string() }))
+        .form(&serde_json::json!({ "idempotency_key": uuid::Uuid::now_v7().to_string() }))
         .send()
         .await
         .unwrap();
@@ -2687,4 +2699,356 @@ async fn malformed_publish_by_id_path_is_404_and_enqueues_nothing() {
         .await
         .unwrap();
     assert_eq!(queued, 0);
+}
+
+fn v7_at(unix_secs: u64) -> uuid::Uuid {
+    uuid::Uuid::new_v7(uuid::Timestamp::from_unix(uuid::NoContext, unix_secs, 0))
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+#[tokio::test]
+async fn idempotency_key_v7_is_accepted_on_publish() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let body = serde_json::json!({
+        "title": "v7 ok",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
+    });
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let (n,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM idempotency WHERE action = 'publish'")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert_eq!(n, 1);
+}
+
+#[tokio::test]
+async fn idempotency_key_v4_is_400_and_writes_nothing() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let body = serde_json::json!({
+        "title": "v4 no",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": uuid::Uuid::new_v4().to_string()
+    });
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_eq!(response.status().as_u16(), 400);
+    let (issues,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM newsletter.newsletter_issues")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    let (keys,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM idempotency")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert_eq!(issues, 0);
+    assert_eq!(keys, 0);
+}
+
+#[tokio::test]
+async fn idempotency_key_nil_is_400_and_writes_nothing() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let body = serde_json::json!({
+        "title": "nil no",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": uuid::Uuid::nil().to_string()
+    });
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_eq!(response.status().as_u16(), 400);
+    let (keys,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM idempotency")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert_eq!(keys, 0);
+}
+
+#[tokio::test]
+async fn idempotency_key_malformed_is_400_and_writes_nothing() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let body = serde_json::json!({
+        "title": "bad",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": "not-a-uuid"
+    });
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_eq!(response.status().as_u16(), 400);
+    let (keys,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM idempotency")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert_eq!(keys, 0);
+}
+
+#[tokio::test]
+async fn idempotency_key_stale_timestamp_is_400() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let stale = v7_at(unix_now() - 25 * 60 * 60);
+    let body = serde_json::json!({
+        "title": "stale",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": stale.to_string()
+    });
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_eq!(response.status().as_u16(), 400);
+    let (keys,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM idempotency")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert_eq!(keys, 0);
+}
+
+#[tokio::test]
+async fn idempotency_key_future_timestamp_is_400() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+    let future = v7_at(unix_now() + 10 * 60);
+    let body = serde_json::json!({
+        "title": "future",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": future.to_string()
+    });
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_eq!(response.status().as_u16(), 400);
+    let (keys,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM idempotency")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert_eq!(keys, 0);
+}
+
+#[tokio::test]
+async fn duplicate_save_draft_is_deduped_and_not_refused_as_stale() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let key = uuid::Uuid::now_v7().to_string();
+    let body = serde_json::json!({
+        "title": "First save",
+        "text_content": "v1",
+        "html_content": "<p>v1</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "loaded_content_hash": "",
+        "idempotency_key": key
+    });
+    let response = test_app.post_save_newsletter_draft(&body).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(html.contains("Draft saved."), "first save flash: {html}");
+
+    // Same key + same body (loaded hash still empty / original). Without replay-first
+    // ordering this would look stale because the row now exists with different content.
+    let response = test_app.post_save_newsletter_draft_raw(&body).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(
+        html.contains("Draft saved."),
+        "replay must flash first success, not stale: {html}"
+    );
+    assert!(
+        !html.contains("changed since you opened it"),
+        "duplicate save must not be refused as stale: {html}"
+    );
+
+    let title: String = sqlx::query_scalar!(
+        r#"SELECT title FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1"#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(title, "First save");
+
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM idempotency WHERE idempotency_key = $1 AND action = 'save_draft'",
+    )
+    .bind(&key)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(n, 1);
+}
+
+#[tokio::test]
+async fn duplicate_compose_publish_is_deduped_without_second_queue_rows() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let key = uuid::Uuid::now_v7().to_string();
+    let body = serde_json::json!({
+        "title": "Once only",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": key
+    });
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(html.contains("emails will go out shortly"), "{html}");
+    test_app.dispatch_all_pending_emails().await;
+
+    let (issues,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM newsletter.newsletter_issues")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert_eq!(issues, 1);
+    let (queue,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM newsletter.issue_delivery_queue")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    // Worker may or may not have drained; at most one enqueue happened.
+    assert!(queue <= 1, "queue rows={queue}");
+    let (keys,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM idempotency WHERE idempotency_key = $1 AND action = 'publish'",
+    )
+    .bind(&key)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(keys, 1);
+}
+
+#[tokio::test]
+async fn duplicate_publish_by_id_is_deduped_without_second_queue_rows() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    test_app
+        .post_save_newsletter_draft(&serde_json::json!({
+            "title": "Ready",
+            "text_content": "plain",
+            "html_content": "<p>html</p>",
+            "newsletter_issue_id": issue_id.to_string(),
+            "loaded_content_hash": "",
+            "idempotency_key": uuid::Uuid::now_v7().to_string()
+        }))
+        .await;
+
+    let key = uuid::Uuid::now_v7().to_string();
+    let body = serde_json::json!({ "idempotency_key": key });
+    let response = test_app
+        .post_publish_saved_newsletter(issue_id, &body)
+        .await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+
+    let response = test_app
+        .post_publish_saved_newsletter(issue_id, &body)
+        .await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(html.contains("emails will go out shortly"), "{html}");
+    test_app.dispatch_all_pending_emails().await;
+
+    let status = sqlx::query_scalar!(
+        r#"
+        SELECT status as "status: site::domain::NewsletterIssueStatus"
+        FROM newsletter.newsletter_issues
+        WHERE newsletter_issue_id = $1
+        "#,
+        issue_id
+    )
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_ne!(status, site::domain::NewsletterIssueStatus::Draft);
+
+    let (keys,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM idempotency WHERE idempotency_key = $1 AND action = 'publish'",
+    )
+    .bind(&key)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(keys, 1);
+}
+
+#[tokio::test]
+async fn same_form_key_can_save_then_publish_via_action_scope() {
+    // Edit page mints one key for both Save and Publish-by-id; action scoping must
+    // allow save_draft then publish without colliding.
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let key = uuid::Uuid::now_v7().to_string();
+    let save_body = serde_json::json!({
+        "title": "Shared key",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "loaded_content_hash": "",
+        "idempotency_key": key
+    });
+    let response = test_app.post_save_newsletter_draft(&save_body).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+
+    let response = test_app
+        .post_publish_saved_newsletter(issue_id, &serde_json::json!({ "idempotency_key": key }))
+        .await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(html.contains("emails will go out shortly"), "{html}");
+    test_app.dispatch_all_pending_emails().await;
+
+    let (save_keys,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM idempotency WHERE idempotency_key = $1 AND action = 'save_draft'",
+    )
+    .bind(&key)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    let (pub_keys,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM idempotency WHERE idempotency_key = $1 AND action = 'publish'",
+    )
+    .bind(&key)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(save_keys, 1);
+    assert_eq!(pub_keys, 1);
 }

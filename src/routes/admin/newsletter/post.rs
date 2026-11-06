@@ -1,7 +1,9 @@
 use super::content_hash::{ExpectedContent, draft_content_hash, parse_expected};
 use crate::authentication::UserId;
 use crate::domain::NewsletterIssueStatus;
-use crate::idempotency::{IdempotencyKey, NextAction, save_response, try_processing};
+use crate::idempotency::{
+    IdempotencyAction, IdempotencyKey, NextAction, save_response, try_processing,
+};
 use crate::issue_delivery_worker::mark_sent_if_drained;
 use crate::utils::e400;
 use crate::utils::{e500, see_other};
@@ -16,6 +18,9 @@ use uuid::Uuid;
 /// Persisted on the idempotency saved response so replay flash reflects the
 /// first processing outcome, not a possibly different replay body.
 const QUEUE_OUTCOME_HEADER: &str = "x-newsletter-queue-outcome";
+/// Persisted on the draft-save idempotency response so replay flash matches the
+/// first processing outcome (saved / stale / not-draft).
+const DRAFT_OUTCOME_HEADER: &str = "x-newsletter-draft-outcome";
 
 #[derive(serde::Deserialize)]
 pub struct FormData {
@@ -88,9 +93,14 @@ pub async fn publish_newsletter(
     };
     // Replay must run before any insert/exists check so a saved success (or
     // refusal) is returned even when the issue row now exists.
-    let mut transaction = match try_processing(&pool, &idempotency_key, *user_id)
-        .await
-        .map_err(e500)?
+    let mut transaction = match try_processing(
+        &pool,
+        &idempotency_key,
+        *user_id,
+        IdempotencyAction::Publish,
+    )
+    .await
+    .map_err(e500)?
     {
         NextAction::StartProcessing(t) => t,
         NextAction::ReturnSavedResponse(saved_response) => {
@@ -117,9 +127,14 @@ pub async fn publish_newsletter(
             see_other(&format!("/admin/newsletters/{issue_id}/edit")),
             &outcome,
         );
-        let response = save_response(transaction, &idempotency_key, *user_id, response)
-            .await
-            .map_err(e500)?;
+        let response = save_response(
+            transaction,
+            &idempotency_key,
+            IdempotencyAction::Publish,
+            response,
+        )
+        .await
+        .map_err(e500)?;
         already_exists_message().send();
         return Ok(strip_queue_outcome_header(response));
     }
@@ -128,9 +143,14 @@ pub async fn publish_newsletter(
         .context("Failed to enqueue newsletter issue for delivery")
         .map_err(e500)?;
     let response = attach_queue_outcome(see_other("/admin/newsletters"), &outcome);
-    let response = save_response(transaction, &idempotency_key, *user_id, response)
-        .await
-        .map_err(e500)?;
+    let response = save_response(
+        transaction,
+        &idempotency_key,
+        IdempotencyAction::Publish,
+        response,
+    )
+    .await
+    .map_err(e500)?;
     match outcome {
         QueueOutcome::Queued => success_message().send(),
         QueueOutcome::AlreadyHandled { .. } => already_handled_message().send(),
@@ -169,9 +189,14 @@ pub async fn publish_saved_newsletter(
     let issue_id = path.newsletter_issue_id;
     let idempotency_key: IdempotencyKey = form.0.idempotency_key.try_into().map_err(e400)?;
 
-    let mut transaction = match try_processing(&pool, &idempotency_key, *user_id)
-        .await
-        .map_err(e500)?
+    let mut transaction = match try_processing(
+        &pool,
+        &idempotency_key,
+        *user_id,
+        IdempotencyAction::Publish,
+    )
+    .await
+    .map_err(e500)?
     {
         NextAction::StartProcessing(t) => t,
         NextAction::ReturnSavedResponse(saved_response) => {
@@ -216,9 +241,14 @@ pub async fn publish_saved_newsletter(
     };
 
     let response = attach_queue_outcome(see_other("/admin/newsletters"), &outcome);
-    let response = save_response(transaction, &idempotency_key, *user_id, response)
-        .await
-        .map_err(e500)?;
+    let response = save_response(
+        transaction,
+        &idempotency_key,
+        IdempotencyAction::Publish,
+        response,
+    )
+    .await
+    .map_err(e500)?;
     match outcome {
         QueueOutcome::Queued => success_message().send(),
         QueueOutcome::AlreadyHandled { .. } => already_handled_message().send(),
@@ -274,13 +304,46 @@ pub struct DraftFormData {
     /// Hash of the content the form loaded (`content_hash`). Required: empty
     /// means "expect no stored row" (compose page); a missing field is a 400.
     loaded_content_hash: String,
-    /// Present on the shared form; ignored — draft upsert needs no idempotency row.
-    #[serde(default, rename = "idempotency_key")]
-    _idempotency_key: Option<String>,
+    /// Form-minted UUIDv7; deduped under action `save_draft` before the R6a hash
+    /// check so a successful save's replay is not refused as stale.
+    idempotency_key: String,
 }
 
-/// Persist (or update) a draft without enqueueing delivery. Naturally idempotent via
-/// upsert-on-draft; saving over a non-draft issue changes nothing and flashes an error.
+fn attach_draft_outcome(mut response: HttpResponse, outcome: &'static str) -> HttpResponse {
+    response.headers_mut().insert(
+        HeaderName::from_static(DRAFT_OUTCOME_HEADER),
+        HeaderValue::from_static(outcome),
+    );
+    response
+}
+
+fn strip_draft_outcome_header(mut response: HttpResponse) -> HttpResponse {
+    response.headers_mut().remove(DRAFT_OUTCOME_HEADER);
+    response
+}
+
+fn flash_for_draft_replay(saved_response: &HttpResponse) {
+    let outcome = saved_response
+        .headers()
+        .get(DRAFT_OUTCOME_HEADER)
+        .and_then(|v| v.to_str().ok());
+    match outcome {
+        Some("saved") => FlashMessage::info("Draft saved.").send(),
+        Some("stale") => FlashMessage::error(
+            "This draft changed since you opened it. Reload to see the latest version before saving.",
+        )
+        .send(),
+        // "not-draft", missing, or anything unexpected
+        _ => FlashMessage::error(
+            "This newsletter issue is no longer a draft and cannot be overwritten.",
+        )
+        .send(),
+    }
+}
+
+/// Persist (or update) a draft without enqueueing delivery. Deduped by the
+/// form-minted idempotency key (action `save_draft`); the draft-to-non-draft
+/// status check and R6a hash guard still run under `FOR UPDATE` on first process.
 #[tracing::instrument(
     name = "Save newsletter draft",
     skip_all,
@@ -291,23 +354,36 @@ pub async fn save_newsletter_draft(
     pool: web::Data<PgPool>,
     user_id: web::ReqData<UserId>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let _user_id = user_id.into_inner();
+    let user_id = user_id.into_inner();
     let DraftFormData {
         title,
         text_content,
         html_content,
         newsletter_issue_id,
         loaded_content_hash,
-        _idempotency_key: _,
+        idempotency_key,
     } = form.0;
     let issue_id = Uuid::parse_str(&newsletter_issue_id).map_err(e400)?;
     let expected = parse_expected(&loaded_content_hash).map_err(e400)?;
+    let idempotency_key: IdempotencyKey = idempotency_key.try_into().map_err(e400)?;
 
-    let mut transaction = pool
-        .begin()
-        .await
-        .context("Failed to begin draft-save transaction")
-        .map_err(e500)?;
+    // Replay before the R6a hash check: a duplicate submit after a successful
+    // save must return the first response, not be refused as stale.
+    let mut transaction = match try_processing(
+        &pool,
+        &idempotency_key,
+        *user_id,
+        IdempotencyAction::SaveDraft,
+    )
+    .await
+    .map_err(e500)?
+    {
+        NextAction::StartProcessing(t) => t,
+        NextAction::ReturnSavedResponse(saved_response) => {
+            flash_for_draft_replay(&saved_response);
+            return Ok(strip_draft_outcome_header(saved_response));
+        }
+    };
 
     let existing = sqlx::query!(
         r#"
@@ -335,17 +411,23 @@ pub async fn save_newsletter_draft(
     if let Some((status, _)) = &existing
         && *status != NewsletterIssueStatus::Draft
     {
-        // Drop the txn without writing; content stays untouched.
-        transaction
-            .rollback()
-            .await
-            .context("Failed to rollback draft-save transaction")
-            .map_err(e500)?;
+        let response = attach_draft_outcome(
+            see_other(&format!("/admin/newsletters/{issue_id}/edit")),
+            "not-draft",
+        );
+        let response = save_response(
+            transaction,
+            &idempotency_key,
+            IdempotencyAction::SaveDraft,
+            response,
+        )
+        .await
+        .map_err(e500)?;
         FlashMessage::error(
             "This newsletter issue is no longer a draft and cannot be overwritten.",
         )
         .send();
-        return Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")));
+        return Ok(strip_draft_outcome_header(response));
     }
 
     // Stale-tab guard (R6): the stored row must be exactly what the form loaded.
@@ -357,16 +439,23 @@ pub async fn save_newsletter_draft(
         _ => false,
     };
     if !fresh {
-        transaction
-            .rollback()
-            .await
-            .context("Failed to rollback stale draft-save transaction")
-            .map_err(e500)?;
+        let response = attach_draft_outcome(
+            see_other(&format!("/admin/newsletters/{issue_id}/edit")),
+            "stale",
+        );
+        let response = save_response(
+            transaction,
+            &idempotency_key,
+            IdempotencyAction::SaveDraft,
+            response,
+        )
+        .await
+        .map_err(e500)?;
         FlashMessage::error(
             "This draft changed since you opened it. Reload to see the latest version before saving.",
         )
         .send();
-        return Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")));
+        return Ok(strip_draft_outcome_header(response));
     }
 
     if existing.is_some() {
@@ -407,16 +496,23 @@ pub async fn save_newsletter_draft(
             .await
             .map_err(e500)?;
             if status_now == Some(NewsletterIssueStatus::Draft) {
-                transaction
-                    .rollback()
-                    .await
-                    .context("Failed to rollback draft-save after concurrent insert")
-                    .map_err(e500)?;
+                let response = attach_draft_outcome(
+                    see_other(&format!("/admin/newsletters/{issue_id}/edit")),
+                    "stale",
+                );
+                let response = save_response(
+                    transaction,
+                    &idempotency_key,
+                    IdempotencyAction::SaveDraft,
+                    response,
+                )
+                .await
+                .map_err(e500)?;
                 FlashMessage::error(
                     "This draft changed since you opened it. Reload to see the latest version before saving.",
                 )
                 .send();
-                return Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")));
+                return Ok(strip_draft_outcome_header(response));
             }
         }
     }
@@ -437,26 +533,39 @@ pub async fn save_newsletter_draft(
     .map_err(e500)?;
 
     if status_after != Some(NewsletterIssueStatus::Draft) {
-        transaction
-            .rollback()
-            .await
-            .context("Failed to rollback draft-save after lost race")
-            .map_err(e500)?;
+        let response = attach_draft_outcome(
+            see_other(&format!("/admin/newsletters/{issue_id}/edit")),
+            "not-draft",
+        );
+        let response = save_response(
+            transaction,
+            &idempotency_key,
+            IdempotencyAction::SaveDraft,
+            response,
+        )
+        .await
+        .map_err(e500)?;
         FlashMessage::error(
             "This newsletter issue is no longer a draft and cannot be overwritten.",
         )
         .send();
-        return Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")));
+        return Ok(strip_draft_outcome_header(response));
     }
 
-    transaction
-        .commit()
-        .await
-        .context("Failed to commit newsletter draft")
-        .map_err(e500)?;
-
+    let response = attach_draft_outcome(
+        see_other(&format!("/admin/newsletters/{issue_id}/edit")),
+        "saved",
+    );
+    let response = save_response(
+        transaction,
+        &idempotency_key,
+        IdempotencyAction::SaveDraft,
+        response,
+    )
+    .await
+    .map_err(e500)?;
     FlashMessage::info("Draft saved.").send();
-    Ok(see_other(&format!("/admin/newsletters/{issue_id}/edit")))
+    Ok(strip_draft_outcome_header(response))
 }
 
 /// Insert-only for compose Publish. Returns `true` if a new row was inserted,

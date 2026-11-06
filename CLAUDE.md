@@ -117,25 +117,26 @@ manually. Tables: `subscriptions`, `subscription_tokens`, `users`, `newsletter_i
 `newsletter_issues.status` is a Postgres enum (`newsletter.newsletter_issue_status`:
 `draft | queued | sent | failed`, mapped as `NewsletterIssueStatus`). The admin UI at
 `/admin/newsletters` lists drafts (with Edit + Publish) and recent issues. Compose at
-`/admin/newsletters/new` mints a `newsletter_issue_id` plus a publish idempotency key:
-**Save draft** (`POST /admin/newsletters/drafts`, upsert while status is `draft`, no
-idempotency row) and **Publish** (`POST /admin/newsletters`) which is **insert-only** —
-it inserts the submitted form as a new draft then queues it; if that id already exists
-(e.g. after Save draft), it refuses without overwriting and redirects to the edit page.
-Edit at `/admin/newsletters/{id}/edit` reuses the path id: **Save draft** only on the
-content form. **Publish** is a separate form (`POST /admin/newsletters/{id}/publish`)
-that queues the **stored** draft under `FOR UPDATE` (idempotency key only — no title/body),
-so Publish never sends unsaved form content. Save draft carries a hidden
-`loaded_content_hash` (SHA-256 of the length-prefixed title/text/html the page loaded;
-the compose page sends it empty, meaning "expect no row"). The save compares it to the
-stored row under `FOR UPDATE` and refuses without writing on a mismatch ("This draft
-changed since you opened it…"), so a stale tab cannot silently overwrite a newer draft.
-A missing or malformed hash is a 400. Non-draft issues render read-only (no POST
-form); saving over them is rejected without changes. Content of a non-draft issue is never
-changed. `sent` is set when the issue's delivery queue is drained (or was empty at enqueue)
-— meaning every subscriber was *attempted*, not that every email API call succeeded. The
-`failed` value is reserved; nothing writes it today. Idempotency keys are kept forever
-(book-style).
+`/admin/newsletters/new` mints a `newsletter_issue_id` plus a UUIDv7 idempotency key
+(nothing stored at render). **Save draft** (`POST /admin/newsletters/drafts`) and
+**Publish** (`POST /admin/newsletters`) both echo that key; the server validates it is a
+v7 UUID whose embedded timestamp is within ~24h (60s future skew) and dedupes under
+`PRIMARY KEY (idempotency_key, action)` with `action` `save_draft` or `publish` (not
+scoped by user). Compose Publish is **insert-only** — it inserts the submitted form as a
+new draft then queues it; if that id already exists (e.g. after Save draft), it refuses
+without overwriting and redirects to the edit page. Edit at `/admin/newsletters/{id}/edit`
+reuses the path id: **Save draft** on the content form (same minted key, `save_draft`
+action). **Publish** is a separate form (`POST /admin/newsletters/{id}/publish`) that
+queues the **stored** draft under `FOR UPDATE` (key only — no title/body). Save draft
+carries a hidden `loaded_content_hash` (SHA-256 of the length-prefixed title/text/html the
+page loaded; the compose page sends it empty, meaning "expect no row"). Replay is checked
+before the hash compare under `FOR UPDATE`, so a duplicate save is not refused as stale.
+A missing/malformed hash or invalid key is a 400. Non-draft issues render read-only (no
+POST form); saving over them is rejected without changes. Content of a non-draft issue is
+never changed. `sent` is set when the issue's delivery queue is drained (or was empty at
+enqueue) — meaning every subscriber was *attempted*, not that every email API call
+succeeded. The `failed` value is reserved; nothing writes it today. Idempotency keys are
+kept forever (book-style); the 24h window applies only to the key's embedded timestamp.
 
 The delivery worker polls `issue_delivery_queue` every 10s when empty and uses
 `FOR UPDATE SKIP LOCKED` so multiple workers can run; dequeue/send/delete happen in one transaction,

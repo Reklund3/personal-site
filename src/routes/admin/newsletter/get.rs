@@ -93,7 +93,7 @@ pub async fn list_newsletters(
         for d in &drafts {
             let title = display_title(&d.title);
             let id = d.newsletter_issue_id;
-            let publish_key = Uuid::new_v4();
+            let publish_key = Uuid::now_v7();
             writeln!(
                 drafts_html,
                 r#"<li>
@@ -150,12 +150,12 @@ pub async fn list_newsletters(
         )))
 }
 
-/// Compose a new issue: mints `newsletter_issue_id` + idempotency key for the form.
+/// Compose a new issue: mints `newsletter_issue_id` + a UUIDv7 idempotency key for the form.
 pub async fn publish_newsletter_form(
     flash_messages: IncomingFlashMessages,
 ) -> Result<HttpResponse, actix_web::Error> {
     let issue_id = Uuid::new_v4();
-    let idempotency_key = Uuid::new_v4();
+    let idempotency_key = Uuid::now_v7();
     Ok(HttpResponse::Ok()
         .content_type(ContentType::html())
         .body(render_issue_form(
@@ -217,9 +217,10 @@ pub async fn edit_newsletter_form(
         FormMode::ReadOnly { .. } => "Newsletter Issue",
         FormMode::Compose => unreachable!("edit path never Compose"),
     };
-    // Publish-by-id needs its own idempotency key (separate form).
+    // One form-minted UUIDv7 covers Save draft and Publish (scoped by action
+    // at submit time). Read-only pages mint nothing.
     let idempotency_key = match mode {
-        FormMode::EditDraft => Uuid::new_v4(),
+        FormMode::EditDraft => Uuid::now_v7(),
         FormMode::ReadOnly { .. } | FormMode::Compose => Uuid::nil(),
     };
 
@@ -353,6 +354,7 @@ fn render_issue_form(
         </label>
         <br>
         <input hidden type="text" name="newsletter_issue_id" value="{issue_id}">
+        <input hidden type="text" name="idempotency_key" value="{idempotency_key}">
         <input hidden type="text" name="{LOADED_HASH_FIELD}" value="{loaded_hash}">
         <button type="submit">Save draft</button>
     </form>
