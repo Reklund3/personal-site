@@ -3640,3 +3640,98 @@ async fn compose_save_racing_a_held_insert_keeps_first_content_and_does_not_repo
     );
     assert_eq!(queued, 0);
 }
+
+// R2c / E2. Two tabs loaded the same draft (same loaded_content_hash) and save
+// different content under different idempotency keys. Exactly one may report
+// "Draft saved."; the other must be refused as stale.
+//
+// The interleaving is forced, not hoped for: the test holds the row's FOR UPDATE
+// lock, fires both saves, and waits (pg_stat_activity, no fixed sleeps) until
+// both are blocked on a lock. Where they block depends on the guard:
+//   - with FOR UPDATE on the save's first SELECT, both block on that SELECT;
+//   - without it, both read v1 unblocked, pass the hash check against v1, and
+//     block later at the upsert.
+// Either way both saves have compared H1 against v1 (or are about to, against
+// the same v1) before the gate opens, so only the FOR UPDATE serialisation lets
+// the loser re-read the winner's content and be refused. Removing it makes both
+// saves report success and the last writer silently overwrite the first.
+#[tokio::test]
+async fn two_saves_with_the_same_loaded_hash_only_one_succeeds() {
+    let test_app = spawn_app().await;
+    let issue_id = uuid::Uuid::new_v4();
+    let h1 = seed_draft_for_race(&test_app, issue_id).await;
+    let client_a = logged_in_client(&test_app).await;
+    let client_b = logged_in_client(&test_app).await;
+
+    let gate = lock_issue_row(&test_app, issue_id).await;
+    let url = format!("{}/admin/newsletters/drafts", test_app.address);
+    let save_a = spawn_post(
+        client_a.clone(),
+        url.clone(),
+        serde_json::json!({
+            "title": "a", "text_content": "a text", "html_content": "<p>a</p>",
+            "newsletter_issue_id": issue_id.to_string(), "loaded_content_hash": h1,
+            "idempotency_key": uuid::Uuid::now_v7().to_string(),
+        }),
+    );
+    let save_b = spawn_post(
+        client_b.clone(),
+        url,
+        serde_json::json!({
+            "title": "b", "text_content": "b text", "html_content": "<p>b</p>",
+            "newsletter_issue_id": issue_id.to_string(), "loaded_content_hash": h1,
+            "idempotency_key": uuid::Uuid::now_v7().to_string(),
+        }),
+    );
+    wait_for_lock_waiters(&test_app, 2).await;
+    gate.commit().await.unwrap();
+
+    assert_eq!(save_a.await.unwrap().status().as_u16(), 303);
+    assert_eq!(save_b.await.unwrap().status().as_u16(), 303);
+
+    let html_a = edit_html_for(&test_app, &client_a, issue_id).await;
+    let html_b = edit_html_for(&test_app, &client_b, issue_id).await;
+    let a_saved = html_a.contains("Draft saved.");
+    let b_saved = html_b.contains("Draft saved.");
+    assert!(
+        a_saved ^ b_saved,
+        "exactly one save may report success; a_saved={a_saved} b_saved={b_saved}\nA: {html_a}\nB: {html_b}"
+    );
+    let (winner_html, loser_html, expected) = if a_saved {
+        (
+            &html_a,
+            &html_b,
+            ("a".to_string(), "a text".to_string(), "<p>a</p>".to_string()),
+        )
+    } else {
+        (
+            &html_b,
+            &html_a,
+            ("b".to_string(), "b text".to_string(), "<p>b</p>".to_string()),
+        )
+    };
+    assert!(
+        !winner_html.contains(STALE_FLASH),
+        "winner must not be flashed stale: {winner_html}"
+    );
+    assert!(
+        loser_html.contains(STALE_FLASH),
+        "loser must flash the stale refusal: {loser_html}"
+    );
+
+    let (rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_id)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(rows, 1, "exactly one row for the draft");
+    let (status, content, queued) = issue_status_and_queue(&test_app, issue_id).await;
+    assert_eq!(status, "draft");
+    assert_eq!(
+        content, expected,
+        "stored content must be the saver that reported success"
+    );
+    assert_eq!(queued, 0);
+}
