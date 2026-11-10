@@ -575,3 +575,17 @@ pub fn extract_hidden_value(html: &str, name: &str) -> Option<String> {
     let end = html[start..].find('"')? + start;
     Some(html[start..end].to_owned())
 }
+
+/// Value of the first hidden input named `name` inside the `<form action="form_action">`
+/// element, never reading past that form's closing tag.
+#[allow(dead_code)]
+pub fn extract_hidden_value_in_form(html: &str, form_action: &str, name: &str) -> Option<String> {
+    let form_marker = format!(r#"<form action="{form_action}""#);
+    let form_start = html.find(&form_marker)?;
+    let form_len = html[form_start..].find("</form>")?;
+    let form = &html[form_start..form_start + form_len];
+    let marker = format!(r#"name="{name}" value=""#);
+    let start = form.find(&marker)? + marker.len();
+    let end = form[start..].find('"')? + start;
+    Some(form[start..end].to_owned())
+}

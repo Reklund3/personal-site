@@ -1,6 +1,6 @@
 use crate::helpers::{
-    ConfirmationLinks, TestApp, assert_is_redirect_to, extract_hidden_value, extract_loaded_hash,
-    spawn_app,
+    ConfirmationLinks, TestApp, assert_is_redirect_to, extract_hidden_value,
+    extract_hidden_value_in_form, extract_loaded_hash, spawn_app,
 };
 use fake::Fake;
 use fake::faker::internet::en::SafeEmail;
@@ -507,6 +507,104 @@ async fn idempotent_replay_of_already_handled_issue_keeps_already_handled_flash(
     );
 }
 
+/// Decodes `%XX` escapes (the flash cookie value is percent-encoded JSON).
+fn percent_decode_lossy(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && let Some(hex) = raw.get(i + 1..i + 3)
+            && let Ok(b) = u8::from_str_radix(hex, 16)
+        {
+            out.push(b);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// R9 refusal contract for a request whose idempotency key was first used for a
+/// different request: the response redirects to the list page, the flash it sets
+/// has error severity, and the list page renders a flash paragraph that is none
+/// of `success_texts`. Every flash renders as `<p><i>..</i></p>` regardless of
+/// level, and the list page uses the same markup for its empty-state notes, so
+/// the severity is read from the `_flash` cookie on the redirect itself.
+/// Returns the list page HTML (the flash is consumed by this read).
+async fn assert_refused_to_list_with_error_flash(
+    test_app: &TestApp,
+    response: reqwest::Response,
+    success_texts: &[&str],
+) -> String {
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let flash_cookies: Vec<String> = response
+        .headers()
+        .get_all("set-cookie")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .filter(|v| v.starts_with("_flash="))
+        .map(percent_decode_lossy)
+        .collect();
+    assert!(
+        flash_cookies
+            .iter()
+            .any(|c| c.contains(r#""level":"Error""#)),
+        "refusal must set an error-level flash, got cookies: {flash_cookies:?}"
+    );
+
+    let html = test_app.get_publish_newsletter_html().await;
+    let mut flashes = Vec::new();
+    let mut rest = html.as_str();
+    while let Some(start) = rest.find("<p><i>") {
+        rest = &rest[start + "<p><i>".len()..];
+        let Some(end) = rest.find("</i></p>") else {
+            break;
+        };
+        flashes.push(&rest[..end]);
+        rest = &rest[end..];
+    }
+    flashes.retain(|f| *f != "No drafts." && *f != "No published issues yet.");
+    assert!(
+        !flashes.is_empty(),
+        "list page must render the refusal flash: {html}"
+    );
+    for text in success_texts {
+        assert!(
+            !html.contains(text),
+            "refused request must not flash {text:?}: {html}"
+        );
+    }
+    html
+}
+
+async fn delivery_rows_for(test_app: &TestApp, issue_id: uuid::Uuid) -> i64 {
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM newsletter.issue_delivery_queue WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_id)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    n
+}
+
+async fn idempotency_rows_for(test_app: &TestApp, key: &str, action: &str) -> i64 {
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM idempotency WHERE idempotency_key = $1 AND action = $2",
+    )
+    .bind(key)
+    .bind(action)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    n
+}
+
+const SUCCESS_FLASH: &str = "emails will go out shortly";
+
 #[tokio::test]
 async fn idempotent_replay_flash_follows_first_outcome_not_replay_body() {
     // L2: replay body may omit/change newsletter_issue_id; flash must still
@@ -561,7 +659,8 @@ async fn idempotent_replay_flash_follows_first_outcome_not_replay_body() {
     );
     assert!(!html_page.contains("emails will go out shortly"));
 
-    // --- Case B: first new publish Queued; replay with an unrelated sent id ---
+    // --- Case B: first new publish Queued; the same key replayed with an
+    // unrelated issue id is a different request, so it is refused ---
     Mock::given(path("/email"))
         .and(method("POST"))
         .respond_with(ResponseTemplate::new(200))
@@ -608,16 +707,13 @@ async fn idempotent_replay_flash_follows_first_outcome_not_replay_body() {
         "newsletter_issue_id": unrelated_sent.to_string()
     });
     let response = test_app.post_publish_newsletter(&replay_b).await;
-    assert_is_redirect_to(&response, "/admin/newsletters");
-    let html_page = test_app.get_publish_newsletter_html().await;
-    assert!(
-        html_page.contains("emails will go out shortly"),
-        "replay flash must match first Queued/success outcome, got: {html_page}"
+    assert_refused_to_list_with_error_flash(&test_app, response, &[SUCCESS_FLASH]).await;
+    assert_eq!(
+        delivery_rows_for(&test_app, unrelated_sent).await,
+        0,
+        "refused replay must not enqueue delivery for the unrelated issue"
     );
-    assert!(
-        !html_page.contains("already been handled"),
-        "mismatched replay body must not switch flash to already-handled"
-    );
+    assert_eq!(idempotency_rows_for(&test_app, &key_b, "publish").await, 1);
 
     test_app.dispatch_all_pending_emails().await;
 }
@@ -1649,13 +1745,15 @@ async fn edit_form_wires_path_id_and_has_no_content_publish() {
         )),
         "edit page needs publish-by-id form: {html}"
     );
-    let key = extract_hidden_value(&html, "idempotency_key")
-        .expect("publish-by-id form needs an idempotency key");
+    let publish_action = format!("/admin/newsletters/{issue_id}/publish");
+    let key = extract_hidden_value_in_form(&html, &publish_action, "idempotency_key")
+        .expect("idempotency key must be in the publish-by-id form");
     let key = uuid::Uuid::parse_str(&key).expect("publish key must be a UUID");
     assert_eq!(key.get_version_num(), 7, "form-minted key must be UUIDv7");
     assert!(!key.is_nil(), "publish key must not be the nil UUID");
     let html_again = test_app.get_newsletter_edit_html(issue_id).await;
-    let key_again = extract_hidden_value(&html_again, "idempotency_key").unwrap();
+    let key_again =
+        extract_hidden_value_in_form(&html_again, &publish_action, "idempotency_key").unwrap();
     assert_ne!(
         key.to_string(),
         key_again,
@@ -2884,6 +2982,430 @@ async fn duplicate_save_draft_is_deduped_and_not_refused_as_stale() {
     .await
     .unwrap();
     assert_eq!(n, 1);
+}
+
+#[tokio::test]
+async fn same_key_save_draft_with_different_content_is_refused_without_writing() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let issue_id = uuid::Uuid::new_v4();
+    let key = uuid::Uuid::now_v7().to_string();
+    let body_a = serde_json::json!({
+        "title": "Content A",
+        "text_content": "a",
+        "html_content": "<p>a</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "loaded_content_hash": "",
+        "idempotency_key": key
+    });
+    let response = test_app.post_save_newsletter_draft(&body_a).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{issue_id}/edit"));
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(html.contains("Draft saved."), "first save flash: {html}");
+
+    // Same key and issue id, different content: the replay guard runs before the
+    // R6a hash check, so the empty loaded hash is irrelevant.
+    let body_b = serde_json::json!({
+        "title": "Content B",
+        "text_content": "b",
+        "html_content": "<p>b</p>",
+        "newsletter_issue_id": issue_id.to_string(),
+        "loaded_content_hash": "",
+        "idempotency_key": key
+    });
+    let response = test_app.post_save_newsletter_draft_raw(&body_b).await;
+    let html =
+        assert_refused_to_list_with_error_flash(&test_app, response, &["Draft saved."]).await;
+    assert!(
+        html.contains("different content"),
+        "same-key save with new content must be refused: {html}"
+    );
+
+    let (title, text_content, html_content): (String, String, String) = sqlx::query_as(
+        "SELECT title, text_content, html_content FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_id)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(title, "Content A");
+    assert_eq!(text_content, "a");
+    assert_eq!(html_content, "<p>a</p>");
+
+    let (n,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM idempotency WHERE idempotency_key = $1 AND action = 'save_draft'",
+    )
+    .bind(&key)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(n, 1);
+}
+
+/// Replays `key` (already used for draft `other_id`) against draft `issue_id` with
+/// the given content and checks the R9 contract: the key is bound to the request
+/// it was first used for, so the replay is refused in both content cases. The
+/// response redirects to the list page with an error flash that does not claim
+/// "Draft saved.", and no row is created for `issue_id`.
+async fn assert_cross_id_key_reuse_contract(
+    test_app: &TestApp,
+    other_id: uuid::Uuid,
+    issue_id: uuid::Uuid,
+    key: &str,
+    (title, text_content, html_content): (&str, &str, &str),
+) {
+    let body = serde_json::json!({
+        "title": title,
+        "text_content": text_content,
+        "html_content": html_content,
+        "newsletter_issue_id": issue_id.to_string(),
+        "loaded_content_hash": "",
+        "idempotency_key": key
+    });
+    let response = test_app.post_save_newsletter_draft_raw(&body).await;
+    assert_refused_to_list_with_error_flash(test_app, response, &["Draft saved."]).await;
+
+    let row_for_issue: Option<(String, String, String)> = sqlx::query_as(
+        "SELECT title, text_content, html_content FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_id)
+    .fetch_optional(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert!(
+        row_for_issue.is_none(),
+        "key reused from {other_id} on {issue_id} must not create or change a draft \
+         for {issue_id}: {row_for_issue:?}"
+    );
+}
+
+#[tokio::test]
+async fn cross_draft_key_reuse_does_not_report_saved_for_unwritten_draft() {
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let draft_a = uuid::Uuid::now_v7();
+    let draft_b = uuid::Uuid::now_v7();
+    assert_ne!(draft_a, draft_b);
+    let key = uuid::Uuid::now_v7().to_string();
+
+    let body_a = serde_json::json!({
+        "title": "Draft A",
+        "text_content": "text a",
+        "html_content": "<p>html a</p>",
+        "newsletter_issue_id": draft_a.to_string(),
+        "loaded_content_hash": "",
+        "idempotency_key": key
+    });
+    let response = test_app.post_save_newsletter_draft(&body_a).await;
+    assert_is_redirect_to(&response, &format!("/admin/newsletters/{draft_a}/edit"));
+    let html = test_app.get_newsletter_edit_html(draft_a).await;
+    assert!(html.contains("Draft saved."), "first save flash: {html}");
+
+    let original_a = (
+        "Draft A".to_owned(),
+        "text a".to_owned(),
+        "<p>html a</p>".to_owned(),
+    );
+
+    // Phase 1: same key, other id, different content: refused.
+    assert_cross_id_key_reuse_contract(
+        &test_app,
+        draft_a,
+        draft_b,
+        &key,
+        ("Draft B", "text b", "<p>html b</p>"),
+    )
+    .await;
+    assert_eq!(stored_content(&test_app, draft_a).await, original_a);
+
+    // Phase 2: same key, other id, content identical to A's: still refused. The
+    // key is bound to A's request, so B must not be reported as saved.
+    assert_cross_id_key_reuse_contract(
+        &test_app,
+        draft_a,
+        draft_b,
+        &key,
+        ("Draft A", "text a", "<p>html a</p>"),
+    )
+    .await;
+    assert_eq!(stored_content(&test_app, draft_a).await, original_a);
+
+    // Neither refusal wrote or rewrote an idempotency row.
+    assert_eq!(idempotency_rows_for(&test_app, &key, "save_draft").await, 1);
+}
+
+#[tokio::test]
+async fn publish_by_id_key_reused_on_another_draft_is_refused_without_enqueue() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let draft_a = uuid::Uuid::new_v4();
+    let draft_b = uuid::Uuid::new_v4();
+    for (id, title) in [(draft_a, "Draft A"), (draft_b, "Draft B")] {
+        let response = test_app
+            .post_save_newsletter_draft(&serde_json::json!({
+                "title": title,
+                "text_content": "plain",
+                "html_content": "<p>html</p>",
+                "newsletter_issue_id": id.to_string(),
+            }))
+            .await;
+        assert_is_redirect_to(&response, &format!("/admin/newsletters/{id}/edit"));
+    }
+
+    // Publish A under key K; consume the success flash so a stale cookie cannot
+    // satisfy the later assertions.
+    let key = uuid::Uuid::now_v7().to_string();
+    let body = serde_json::json!({ "idempotency_key": key });
+    let response = test_app.post_publish_saved_newsletter(draft_a, &body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(html.contains(SUCCESS_FLASH), "{html}");
+    let rows_a = delivery_rows_for(&test_app, draft_a).await;
+    assert_eq!(rows_a, 1);
+
+    // Same key K, publish-by-id for the other draft B: a different request.
+    let response = test_app.post_publish_saved_newsletter(draft_b, &body).await;
+    assert_refused_to_list_with_error_flash(&test_app, response, &[SUCCESS_FLASH]).await;
+
+    let (status_b, content_b, queued_b) = issue_status_and_queue(&test_app, draft_b).await;
+    assert_eq!(status_b, "draft");
+    assert_eq!(
+        content_b,
+        ("Draft B".into(), "plain".into(), "<p>html</p>".into())
+    );
+    assert_eq!(queued_b, 0);
+    assert_eq!(delivery_rows_for(&test_app, draft_a).await, rows_a);
+    assert_eq!(idempotency_rows_for(&test_app, &key, "publish").await, 1);
+
+    test_app.dispatch_all_pending_emails().await;
+}
+
+#[tokio::test]
+async fn compose_publish_key_reused_on_publish_by_id_is_refused_without_enqueue() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let issue_a = uuid::Uuid::new_v4();
+    let key = uuid::Uuid::now_v7().to_string();
+    let response = test_app
+        .post_publish_newsletter(&serde_json::json!({
+            "title": "Compose A",
+            "text_content": "plain",
+            "html_content": "<p>html</p>",
+            "newsletter_issue_id": issue_a.to_string(),
+            "idempotency_key": key
+        }))
+        .await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(html.contains(SUCCESS_FLASH), "{html}");
+    let rows_before = delivery_rows_for(&test_app, issue_a).await;
+    assert_eq!(rows_before, 1);
+
+    // Publish-by-id shares the `publish` action scope, so K finds the compose
+    // Publish row; the endpoint differs, so it is a different request.
+    let response = test_app
+        .post_publish_saved_newsletter(issue_a, &serde_json::json!({ "idempotency_key": key }))
+        .await;
+    assert_refused_to_list_with_error_flash(&test_app, response, &[SUCCESS_FLASH]).await;
+
+    assert_eq!(delivery_rows_for(&test_app, issue_a).await, rows_before);
+    assert_eq!(idempotency_rows_for(&test_app, &key, "publish").await, 1);
+
+    test_app.dispatch_all_pending_emails().await;
+}
+
+#[tokio::test]
+async fn compose_publish_replay_with_different_issue_id_is_refused_without_enqueue() {
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    // First request carries no issue id: the server mints one.
+    let key = uuid::Uuid::now_v7().to_string();
+    let first = serde_json::json!({
+        "title": "Minted id",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": key
+    });
+    let response = test_app.post_publish_newsletter(&first).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(html.contains(SUCCESS_FLASH), "{html}");
+
+    // Same key and content, but now an explicit id S the first request never had.
+    let issue_s = uuid::Uuid::new_v4();
+    let mut second = first.clone();
+    second["newsletter_issue_id"] = issue_s.to_string().into();
+    let response = test_app.post_publish_newsletter(&second).await;
+    assert_refused_to_list_with_error_flash(&test_app, response, &[SUCCESS_FLASH]).await;
+
+    assert_eq!(delivery_rows_for(&test_app, issue_s).await, 0);
+    let (issue_s_rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_s)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(issue_s_rows, 0, "refused replay must not create issue S");
+    assert_eq!(count_newsletter_issues(&test_app).await, 1);
+    assert_eq!(idempotency_rows_for(&test_app, &key, "publish").await, 1);
+
+    test_app.dispatch_all_pending_emails().await;
+}
+
+#[tokio::test]
+async fn identical_compose_publish_duplicate_without_issue_id_replays_success() {
+    // Pins the dedupe that binding must not break: with no explicit id the first
+    // request mints one server-side, so the fingerprint cannot depend on it.
+    // Unlike duplicate_compose_publish_is_deduped_without_second_queue_rows, the
+    // first flash is consumed before the duplicate, so the replay has to set its
+    // own success flash.
+    let test_app = spawn_app().await;
+    create_confirmed_subscriber(&test_app).await;
+    test_app.test_user.login(&test_app).await;
+
+    Mock::given(path("/email"))
+        .and(method("POST"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&test_app.email_server)
+        .await;
+
+    let key = uuid::Uuid::now_v7().to_string();
+    let body = serde_json::json!({
+        "title": "Same again",
+        "text_content": "plain",
+        "html_content": "<p>html</p>",
+        "idempotency_key": key
+    });
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(html.contains(SUCCESS_FLASH), "first publish flash: {html}");
+
+    let response = test_app.post_publish_newsletter(&body).await;
+    assert_is_redirect_to(&response, "/admin/newsletters");
+    let html = test_app.get_publish_newsletter_html().await;
+    assert!(
+        html.contains(SUCCESS_FLASH),
+        "duplicate must replay: {html}"
+    );
+
+    assert_eq!(count_newsletter_issues(&test_app).await, 1);
+    let (queue,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM newsletter.issue_delivery_queue")
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    assert!(queue <= 1, "queue rows={queue}");
+    assert_eq!(idempotency_rows_for(&test_app, &key, "publish").await, 1);
+
+    test_app.dispatch_all_pending_emails().await;
+}
+
+#[tokio::test]
+async fn legacy_saved_draft_row_without_fingerprint_replays_as_before() {
+    // A row written before request binding carries no fingerprint header. Build
+    // one by hand: a finished `save_draft` response (303 to the edit page, outcome
+    // "saved") and nothing else. Replaying its key must keep returning the saved
+    // response, not refuse it.
+    let test_app = spawn_app().await;
+    test_app.test_user.login(&test_app).await;
+
+    let (user_id,): (uuid::Uuid,) = sqlx::query_as("SELECT user_id FROM users WHERE username = $1")
+        .bind(&test_app.test_user.username)
+        .fetch_one(&test_app.pg_pool)
+        .await
+        .unwrap();
+    // The draft the old save wrote, so the edit page the replay points at renders.
+    let issue_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO newsletter.newsletter_issues \
+         (newsletter_issue_id, title, text_content, html_content, published_at, status) \
+         VALUES ($1, 'Seeded', 'seeded', '<p>seeded</p>', now(), 'draft')",
+    )
+    .bind(issue_id)
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+    let key = uuid::Uuid::now_v7().to_string();
+    let location = format!("/admin/newsletters/{issue_id}/edit");
+    sqlx::query(
+        r#"
+        INSERT INTO idempotency (
+            user_id, idempotency_key, action,
+            response_status_code, response_headers, response_body, created_at
+        )
+        VALUES (
+            $1, $2, 'save_draft',
+            303,
+            ARRAY[
+                ROW('location'::text, $3::bytea)::header_pair,
+                ROW('x-newsletter-draft-outcome'::text, 'saved'::bytea)::header_pair
+            ],
+            ''::bytea,
+            now()
+        )
+        "#,
+    )
+    .bind(user_id)
+    .bind(&key)
+    .bind(location.as_bytes())
+    .execute(&test_app.pg_pool)
+    .await
+    .unwrap();
+
+    let response = test_app
+        .post_save_newsletter_draft_raw(&serde_json::json!({
+            "title": "Whatever",
+            "text_content": "t",
+            "html_content": "<p>t</p>",
+            "newsletter_issue_id": issue_id.to_string(),
+            "loaded_content_hash": "",
+            "idempotency_key": key
+        }))
+        .await;
+    assert_is_redirect_to(&response, &location);
+    let html = test_app.get_newsletter_edit_html(issue_id).await;
+    assert!(
+        html.contains("Draft saved."),
+        "legacy row must replay its saved outcome: {html}"
+    );
+
+    // It was a replay: the submitted content was neither processed nor written.
+    assert_eq!(
+        stored_content(&test_app, issue_id).await,
+        ("Seeded".into(), "seeded".into(), "<p>seeded</p>".into())
+    );
+    assert_eq!(idempotency_rows_for(&test_app, &key, "save_draft").await, 1);
 }
 
 #[tokio::test]

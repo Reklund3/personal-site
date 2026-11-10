@@ -2,7 +2,8 @@ use super::content_hash::{ExpectedContent, draft_content_hash, parse_expected};
 use crate::authentication::UserId;
 use crate::domain::NewsletterIssueStatus;
 use crate::idempotency::{
-    IdempotencyAction, IdempotencyKey, NextAction, save_response, try_processing,
+    IdempotencyAction, IdempotencyKey, NextAction, RequestFingerprint, save_response,
+    try_processing,
 };
 use crate::issue_delivery_worker::mark_sent_if_drained;
 use crate::utils::e400;
@@ -91,6 +92,12 @@ pub async fn publish_newsletter(
         None | Some("") => None,
         Some(raw) => Some(Uuid::parse_str(raw).map_err(e400)?),
     };
+    let fingerprint = RequestFingerprint::compose_publish(
+        existing_issue_id,
+        &title,
+        &text_content,
+        &html_content,
+    );
     // Replay must run before any insert/exists check so a saved success (or
     // refusal) is returned even when the issue row now exists.
     let mut transaction = match try_processing(
@@ -98,6 +105,7 @@ pub async fn publish_newsletter(
         &idempotency_key,
         *user_id,
         IdempotencyAction::Publish,
+        &fingerprint,
     )
     .await
     .map_err(e500)?
@@ -107,6 +115,7 @@ pub async fn publish_newsletter(
             flash_for_idempotent_replay(&saved_response);
             return Ok(strip_queue_outcome_header(saved_response));
         }
+        NextAction::RequestMismatch => return Ok(refuse_request_mismatch()),
     };
     let issue_id = existing_issue_id.unwrap_or_else(Uuid::new_v4);
     let inserted = insert_newsletter_issue(
@@ -131,6 +140,7 @@ pub async fn publish_newsletter(
             transaction,
             &idempotency_key,
             IdempotencyAction::Publish,
+            &fingerprint,
             response,
         )
         .await
@@ -147,6 +157,7 @@ pub async fn publish_newsletter(
         transaction,
         &idempotency_key,
         IdempotencyAction::Publish,
+        &fingerprint,
         response,
     )
     .await
@@ -188,12 +199,14 @@ pub async fn publish_saved_newsletter(
     let user_id = user_id.into_inner();
     let issue_id = path.newsletter_issue_id;
     let idempotency_key: IdempotencyKey = form.0.idempotency_key.try_into().map_err(e400)?;
+    let fingerprint = RequestFingerprint::publish_saved(issue_id);
 
     let mut transaction = match try_processing(
         &pool,
         &idempotency_key,
         *user_id,
         IdempotencyAction::Publish,
+        &fingerprint,
     )
     .await
     .map_err(e500)?
@@ -203,6 +216,7 @@ pub async fn publish_saved_newsletter(
             flash_for_idempotent_replay(&saved_response);
             return Ok(strip_queue_outcome_header(saved_response));
         }
+        NextAction::RequestMismatch => return Ok(refuse_request_mismatch()),
     };
 
     let status = sqlx::query_scalar!(
@@ -245,6 +259,7 @@ pub async fn publish_saved_newsletter(
         transaction,
         &idempotency_key,
         IdempotencyAction::Publish,
+        &fingerprint,
         response,
     )
     .await
@@ -305,8 +320,23 @@ pub struct DraftFormData {
     /// means "expect no stored row" (compose page); a missing field is a 400.
     loaded_content_hash: String,
     /// Form-minted UUIDv7; deduped under action `save_draft` before the R6a hash
-    /// check so a successful save's replay is not refused as stale.
+    /// check so a successful save's replay is not refused as stale. The key is
+    /// bound to the first request via its request fingerprint (issue id, loaded
+    /// hash, title, text, html): an identical replay returns the first response;
+    /// a different request under the same key is refused and nothing is written.
     idempotency_key: String,
+}
+
+/// A key reused for a different request than it was first used for: refuse with
+/// an error flash on the list page. Nothing is written and the saved response
+/// is not returned.
+fn refuse_request_mismatch() -> HttpResponse {
+    FlashMessage::error(
+        "This request was already processed with different content or for a different \
+        issue, so it was not applied. Reload the page to see the latest version and try again.",
+    )
+    .send();
+    see_other("/admin/newsletters")
 }
 
 fn attach_draft_outcome(mut response: HttpResponse, outcome: &'static str) -> HttpResponse {
@@ -342,8 +372,11 @@ fn flash_for_draft_replay(saved_response: &HttpResponse) {
 }
 
 /// Persist (or update) a draft without enqueueing delivery. Deduped by the
-/// form-minted idempotency key (action `save_draft`); the draft-to-non-draft
-/// status check and R6a hash guard still run under `FOR UPDATE` on first process.
+/// form-minted idempotency key (action `save_draft`), which is bound to the
+/// request it was first used for (request fingerprint): an identical replay
+/// returns the first outcome, any other request under the key is refused
+/// without writing. The draft-to-non-draft status check and R6a hash guard
+/// still run under `FOR UPDATE` on first process.
 #[tracing::instrument(
     name = "Save newsletter draft",
     skip_all,
@@ -366,14 +399,25 @@ pub async fn save_newsletter_draft(
     let issue_id = Uuid::parse_str(&newsletter_issue_id).map_err(e400)?;
     let expected = parse_expected(&loaded_content_hash).map_err(e400)?;
     let idempotency_key: IdempotencyKey = idempotency_key.try_into().map_err(e400)?;
+    let fingerprint = RequestFingerprint::save_draft(
+        issue_id,
+        &loaded_content_hash,
+        &title,
+        &text_content,
+        &html_content,
+    );
 
     // Replay before the R6a hash check: a duplicate submit after a successful
-    // save must return the first response, not be refused as stale.
+    // save must return the first response, not be refused as stale. A same-key
+    // request that is not the one the key was first used for (different id,
+    // loaded hash or content) is refused instead, so edits are not silently
+    // dropped.
     let mut transaction = match try_processing(
         &pool,
         &idempotency_key,
         *user_id,
         IdempotencyAction::SaveDraft,
+        &fingerprint,
     )
     .await
     .map_err(e500)?
@@ -383,6 +427,7 @@ pub async fn save_newsletter_draft(
             flash_for_draft_replay(&saved_response);
             return Ok(strip_draft_outcome_header(saved_response));
         }
+        NextAction::RequestMismatch => return Ok(refuse_request_mismatch()),
     };
 
     let existing = sqlx::query!(
@@ -419,6 +464,7 @@ pub async fn save_newsletter_draft(
             transaction,
             &idempotency_key,
             IdempotencyAction::SaveDraft,
+            &fingerprint,
             response,
         )
         .await
@@ -447,6 +493,7 @@ pub async fn save_newsletter_draft(
             transaction,
             &idempotency_key,
             IdempotencyAction::SaveDraft,
+            &fingerprint,
             response,
         )
         .await
@@ -504,6 +551,7 @@ pub async fn save_newsletter_draft(
                     transaction,
                     &idempotency_key,
                     IdempotencyAction::SaveDraft,
+                    &fingerprint,
                     response,
                 )
                 .await
@@ -541,6 +589,7 @@ pub async fn save_newsletter_draft(
             transaction,
             &idempotency_key,
             IdempotencyAction::SaveDraft,
+            &fingerprint,
             response,
         )
         .await
@@ -560,6 +609,7 @@ pub async fn save_newsletter_draft(
         transaction,
         &idempotency_key,
         IdempotencyAction::SaveDraft,
+        &fingerprint,
         response,
     )
     .await

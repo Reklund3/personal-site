@@ -129,8 +129,7 @@ reuses the path id: **Save draft** on the content form (same minted key, `save_d
 action). **Publish** is a separate form (`POST /admin/newsletters/{id}/publish`) that
 queues the **stored** draft under `FOR UPDATE` (key only — no title/body). Save draft
 carries a hidden `loaded_content_hash` (SHA-256 of the length-prefixed title/text/html the
-page loaded; the compose page sends it empty, meaning "expect no row"). Replay is checked
-before the hash compare under `FOR UPDATE`, so a duplicate save is not refused as stale.
+page loaded; the compose page sends it empty, meaning "expect no row"). Replay is checked before the hash compare and before the row lock, so an identical duplicate save is not refused as stale. Each key is bound to the request it was first used for: a SHA-256 request fingerprint (endpoint tag, issue id, and for Save draft and compose Publish the loaded hash and title/text/html) is stored in a header inside the saved response headers (`x-idempotency-request-fingerprint`, no extra column). An identical replay returns the first outcome; a same-key request with a different fingerprint (other draft id, other content, or the key reused on another endpoint) is refused with an error flash on `/admin/newsletters` and writes nothing. Saved rows with no valid fingerprint (legacy) replay as before.
 A missing/malformed hash or invalid key is a 400. Non-draft issues render read-only (no
 POST form); saving over them is rejected without changes. Content of a non-draft issue is
 never changed. `sent` is set when the issue's delivery queue is drained (or was empty at
