@@ -3701,13 +3701,21 @@ async fn two_saves_with_the_same_loaded_hash_only_one_succeeds() {
         (
             &html_a,
             &html_b,
-            ("a".to_string(), "a text".to_string(), "<p>a</p>".to_string()),
+            (
+                "a".to_string(),
+                "a text".to_string(),
+                "<p>a</p>".to_string(),
+            ),
         )
     } else {
         (
             &html_b,
             &html_a,
-            ("b".to_string(), "b text".to_string(), "<p>b</p>".to_string()),
+            (
+                "b".to_string(),
+                "b text".to_string(),
+                "<p>b</p>".to_string(),
+            ),
         )
     };
     assert!(
