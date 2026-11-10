@@ -618,8 +618,9 @@ pub async fn save_newsletter_draft(
     Ok(strip_draft_outcome_header(response))
 }
 
-/// Insert-only for compose Publish. Returns `true` if a new row was inserted,
-/// `false` if `newsletter_issue_id` already existed (`ON CONFLICT DO NOTHING`).
+/// Insert-only; used by compose Publish and by Save draft when no row is expected.
+/// Returns `true` if a new row was inserted, `false` if `newsletter_issue_id` already
+/// existed (`ON CONFLICT DO NOTHING`).
 #[tracing::instrument(skip_all)]
 async fn insert_newsletter_issue(
     transaction: &mut Transaction<'_, Postgres>,

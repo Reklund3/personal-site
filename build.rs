@@ -5,6 +5,10 @@ fn main() {
     println!("cargo:rerun-if-changed=./ui/package.json");
     println!("cargo:rerun-if-changed=ui/package-lock.json");
     println!("cargo:rerun-if-changed=ui/build.rs");
+    // sqlx::migrate! (used by the integration tests) can't watch the migrations
+    // directory on stable Rust, so a newly added migration wouldn't trigger a
+    // rebuild without this.
+    println!("cargo:rerun-if-changed=migrations");
 
     let npm_ci_status = Command::new("npm")
         .arg("ci")

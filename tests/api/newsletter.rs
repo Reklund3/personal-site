@@ -3574,3 +3574,69 @@ async fn same_form_key_can_save_then_publish_via_action_scope() {
     assert_eq!(save_keys, 1);
     assert_eq!(pub_keys, 1);
 }
+
+// N2. Two first saves of the same compose id race. The test stands in for the
+// first save with a transaction it controls: it inserts the draft row for the
+// compose id and leaves it uncommitted. The real second save (empty hash, "no
+// row expected") does not see that row, so its insert-only INSERT ... ON
+// CONFLICT DO NOTHING blocks on the held unique key. On commit the insert does
+// nothing and the row is a draft, so the save must be refused as stale; without
+// that branch it would fall through to the final status re-check, which also
+// sees a draft, and flash "Draft saved." although its content was dropped.
+#[tokio::test]
+async fn compose_save_racing_a_held_insert_keeps_first_content_and_does_not_report_saved() {
+    let test_app = spawn_app().await;
+    let issue_id = uuid::Uuid::now_v7();
+    let second_client = logged_in_client(&test_app).await;
+
+    let mut held = test_app.pg_pool.begin().await.unwrap();
+    sqlx::query(
+        "INSERT INTO newsletter.newsletter_issues \
+         (newsletter_issue_id, title, text_content, html_content, published_at, status) \
+         VALUES ($1, 'held', 'held text', '<p>held</p>', now(), 'draft')",
+    )
+    .bind(issue_id)
+    .execute(&mut *held)
+    .await
+    .unwrap();
+
+    let second = spawn_post(
+        second_client.clone(),
+        format!("{}/admin/newsletters/drafts", test_app.address),
+        serde_json::json!({
+            "title": "second", "text_content": "second text", "html_content": "<p>second</p>",
+            "newsletter_issue_id": issue_id.to_string(), "loaded_content_hash": "",
+            "idempotency_key": uuid::Uuid::now_v7().to_string(),
+        }),
+    );
+    wait_for_lock_waiters(&test_app, 1).await;
+    held.commit().await.unwrap();
+
+    assert_eq!(second.await.unwrap().status().as_u16(), 303);
+    let html = edit_html_for(&test_app, &second_client, issue_id).await;
+    assert!(
+        !html.contains("Draft saved."),
+        "second save must not report success: {html}"
+    );
+    assert!(
+        html.contains(STALE_FLASH),
+        "second save must flash the stale refusal: {html}"
+    );
+
+    let (rows,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM newsletter.newsletter_issues WHERE newsletter_issue_id = $1",
+    )
+    .bind(issue_id)
+    .fetch_one(&test_app.pg_pool)
+    .await
+    .unwrap();
+    assert_eq!(rows, 1, "exactly one row for the compose id");
+    let (status, content, queued) = issue_status_and_queue(&test_app, issue_id).await;
+    assert_eq!(status, "draft");
+    assert_eq!(
+        content,
+        ("held".into(), "held text".into(), "<p>held</p>".into()),
+        "second save's content must not be stored"
+    );
+    assert_eq!(queued, 0);
+}
