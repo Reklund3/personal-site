@@ -206,6 +206,7 @@ impl TestApp {
         reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .cookie_store(true)
+            .pool_max_idle_per_host(0)
             .build()
             .unwrap()
     }
@@ -458,9 +459,14 @@ pub async fn spawn_app() -> TestApp {
     let application_port = application.port();
     let handle = tokio::spawn(application.run_until_stopped());
 
+    // No idle connection reuse: actix closes a keep-alive connection after answering
+    // a request whose body it never read (e.g. an anonymous POST rejected by
+    // `reject_anonymous_users`) without sending `Connection: close`, so a pooled
+    // connection can be dead by the time the next request is written to it.
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .cookie_store(true)
+        .pool_max_idle_per_host(0)
         .build()
         .unwrap();
 
