@@ -1700,6 +1700,75 @@ async fn draft_routes_require_login() {
     assert_is_redirect_to(&response, "/login");
 }
 
+/// True if any `Connection` header on the response carries the `close` token
+/// (case-insensitive, tolerant of comma-separated token lists).
+fn announces_connection_close(response: &reqwest::Response) -> bool {
+    response
+        .headers()
+        .get_all(reqwest::header::CONNECTION)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .any(|token| token.trim().eq_ignore_ascii_case("close"))
+}
+
+/// `reject_anonymous_users` answers without reading the request body, so actix closes
+/// the keep-alive connection. The rejection must announce that with `Connection: close`,
+/// otherwise a pooled client can reuse a dead connection. Asserts the header itself, so
+/// it does not depend on the race firing.
+#[tokio::test]
+async fn anonymous_admin_post_rejection_announces_connection_close() {
+    let app = spawn_app().await;
+    let issue_id = uuid::Uuid::new_v4();
+    let body = serde_json::json!({
+        "title": "x",
+        "text_content": "y",
+        "html_content": "z",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
+    });
+
+    // Raw: no preliminary GET, so this POST is the only request made by the client.
+    let response = app.post_save_newsletter_draft_raw(&body).await;
+
+    assert_is_redirect_to(&response, "/login");
+    assert!(
+        announces_connection_close(&response),
+        "anonymous rejection must carry `Connection: close`, got headers: {:?}",
+        response.headers()
+    );
+}
+
+/// Guard against over-broad fixes: a request whose body is consumed keeps the
+/// connection alive, so the authenticated success path must not announce close.
+#[tokio::test]
+async fn authenticated_admin_post_does_not_announce_connection_close() {
+    let app = spawn_app().await;
+    app.test_user.login(&app).await;
+    let issue_id = uuid::Uuid::new_v4();
+    let body = serde_json::json!({
+        "title": "x",
+        "text_content": "y",
+        "html_content": "z",
+        "newsletter_issue_id": issue_id.to_string(),
+        "idempotency_key": uuid::Uuid::now_v7().to_string()
+    });
+
+    let response = app.post_save_newsletter_draft(&body).await;
+
+    assert_eq!(response.status().as_u16(), 303);
+    assert_ne!(
+        response.headers().get("Location").unwrap(),
+        "/login",
+        "authenticated request must not be bounced to login"
+    );
+    assert!(
+        !announces_connection_close(&response),
+        "authenticated response must not carry `Connection: close`, got headers: {:?}",
+        response.headers()
+    );
+}
+
 #[tokio::test]
 async fn new_form_includes_issue_id_and_both_buttons() {
     let test_app = spawn_app().await;
