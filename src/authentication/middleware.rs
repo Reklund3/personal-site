@@ -3,6 +3,7 @@ use crate::utils::{e500, see_other};
 use actix_web::body::MessageBody;
 use actix_web::dev::{ServiceRequest, ServiceResponse};
 use actix_web::error::InternalError;
+use actix_web::http::ConnectionType;
 use actix_web::middleware::Next;
 use actix_web::{FromRequest, HttpMessage};
 use std::ops::Deref;
@@ -40,7 +41,12 @@ pub async fn reject_anonymous_users(
             next.call(req).await
         }
         None => {
-            let response = see_other("/login");
+            let mut response = see_other("/login");
+            // The request body is not read here, so actix would otherwise silently
+            // close a keep-alive connection; announce it so clients don't reuse it.
+            response
+                .head_mut()
+                .set_connection_type(ConnectionType::Close);
             let e = anyhow::anyhow!("The user has not logged in");
             Err(InternalError::from_response(e, response).into())
         }
