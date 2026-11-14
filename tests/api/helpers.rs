@@ -202,6 +202,12 @@ impl TestApp {
     }
 
     /// Fresh reqwest client with its own cookie jar (separate session).
+    ///
+    /// Idle connection reuse is disabled (`pool_max_idle_per_host(0)`). actix closes a
+    /// keep-alive connection when it responds before the request's Content-Length body has
+    /// been fully received. `reject_anonymous_users` announces that close with
+    /// `Connection: close`, but its session-error paths still close silently, so a pooled
+    /// connection can be dead by the time the next request is written to it.
     pub fn fresh_api_client() -> reqwest::Client {
         reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -459,16 +465,7 @@ pub async fn spawn_app() -> TestApp {
     let application_port = application.port();
     let handle = tokio::spawn(application.run_until_stopped());
 
-    // No idle connection reuse: actix closes a keep-alive connection after answering
-    // a request whose body it never read (e.g. an anonymous POST rejected by
-    // `reject_anonymous_users`) without sending `Connection: close`, so a pooled
-    // connection can be dead by the time the next request is written to it.
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .cookie_store(true)
-        .pool_max_idle_per_host(0)
-        .build()
-        .unwrap();
+    let client = TestApp::fresh_api_client();
 
     let test_app = TestApp {
         handle,
