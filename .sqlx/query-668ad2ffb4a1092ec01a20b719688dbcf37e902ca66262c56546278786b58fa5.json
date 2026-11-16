@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        UPDATE idempotency\n        SET\n            response_status_code = $3,\n            response_headers = $4,\n            response_body = $5\n        WHERE\n            user_id = $1 AND\n            idempotency_key = $2\n        ",
+  "query": "\n        UPDATE idempotency\n        SET\n            response_status_code = $3,\n            response_headers = $4,\n            response_body = $5\n        WHERE\n            idempotency_key = $1 AND\n            action = $2\n        ",
   "describe": {
     "columns": [],
     "parameters": {
       "Left": [
-        "Uuid",
+        "Text",
         "Text",
         "Int2",
         {
@@ -37,5 +37,5 @@
     },
     "nullable": []
   },
-  "hash": "38ba903ad605b1dcbbae874b3bda0833c360ea3a31a7944a49aaab37cf3799aa"
+  "hash": "668ad2ffb4a1092ec01a20b719688dbcf37e902ca66262c56546278786b58fa5"
 }

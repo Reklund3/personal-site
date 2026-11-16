@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            title,\n            text_content,\n            html_content,\n            status as \"status: NewsletterIssueStatus\"\n        FROM newsletter.newsletter_issues\n        WHERE newsletter_issue_id = $1\n        FOR UPDATE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "title",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "text_content",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "html_content",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "status: NewsletterIssueStatus",
+        "type_info": {
+          "Custom": {
+            "name": "newsletter.newsletter_issue_status",
+            "kind": {
+              "Enum": [
+                "draft",
+                "queued",
+                "sent",
+                "failed"
+              ]
+            }
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "50ca3edad2bfa2d4a0fa7f2a0d6ac184f5fd0044f0e09b16ef120f144c9b6d89"
+}

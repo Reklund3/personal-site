@@ -246,13 +246,11 @@ const ContactDialog: React.FC<ContactDialogProps> = ({dialogOpen, onClose}: Cont
                         success: false,
                         message: "Failed to submit contact information: " + sanitizeToText(String(errorData.reason ?? "")),
                     });
-                } catch (parseError) {
-                    console.error("Failed to submit contact information. Error parsing response: ", parseError);
+                } catch {
                     setRequestStatus({ success: false, message: "Failed to submit contact information. Please try again shortly." });
                 }
             }
         } catch (error) {
-            console.error("Failed to submit contact information. Error: ", error);
             if (error instanceof Error && error.name === 'AbortError') {
                 setRequestStatus({ success: false, message: "Failed to submit contact information. Request timed out."});
             } else {
@@ -267,8 +265,6 @@ const ContactDialog: React.FC<ContactDialogProps> = ({dialogOpen, onClose}: Cont
     const handleContactSubmit = () => {
         if (nameError === '' && emailError === '' && messageError === '') {
             onSubmit(formData);
-        } else {
-            console.log("Form submission failed. Errors: ", { nameError, emailError, messageError });
         }
     }
 
